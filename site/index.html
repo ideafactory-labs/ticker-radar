@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Ticker Radar</title>
+<meta name="description" content="Free, private market radar: your watchlist, T-bill yields, IPO key dates, economic indicators and the dates that matter. End-of-day data from public sources.">
+<meta name="theme-color" content="#0b7a5c">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='none' stroke='%230b7a5c' stroke-width='3'/%3E%3Cpath d='M16 16 L26 9' stroke='%230b7a5c' stroke-width='3' stroke-linecap='round'/%3E%3Ccircle cx='16' cy='16' r='3' fill='%230b7a5c'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <div class="eyebrow">Markets · end of day</div>
+      <h1>Ticker Radar</h1>
+    </div>
+    <div class="src" id="asof">Loading…</div>
+  </header>
+
+  <div class="sample" id="banner" role="status" hidden></div>
+
+  <section class="panel" aria-labelledby="h-since">
+    <div class="panel-head"><h2 id="h-since">Since your last visit</h2><span class="src" id="lastvisit"></span></div>
+    <div class="alerts" id="alerts"></div>
+  </section>
+
+  <section class="panel" aria-labelledby="h-watch">
+    <div class="panel-head"><h2 id="h-watch">Watchlist</h2><span class="src" id="src-prices">Saved in this browser only</span></div>
+    <div class="search">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.6"/><path d="M11 11l3.5 3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      <input id="q" type="search" autocomplete="off" placeholder="Add a stock or ETF: try nvidia, VOO or bank" aria-label="Search stocks and ETFs to add" aria-controls="results">
+      <div class="results" id="results" role="listbox" hidden></div>
+    </div>
+    <div class="cards" id="cards"></div>
+  </section>
+
+  <section class="panel" aria-labelledby="h-rates">
+    <div class="panel-head"><h2 id="h-rates">T-bills and rates</h2><span class="src" id="src-rates"></span></div>
+    <div class="note" id="stale-rates" hidden></div>
+    <div class="two">
+      <div class="scroll"><table id="bills"></table></div>
+      <div><svg class="curve" id="curve" viewBox="0 0 320 170" role="img" aria-label="Treasury yield curve, today against a month ago"></svg></div>
+    </div>
+    <div>
+      <div class="eyebrow" style="margin-bottom:6px">Bill auctions <span class="src" id="src-auctions"></span></div>
+      <div class="scroll"><table id="auctions"></table></div>
+    </div>
+  </section>
+
+  <section class="panel" aria-labelledby="h-ipo">
+    <div class="panel-head"><h2 id="h-ipo">IPO radar</h2><span class="src" id="src-ipos"></span></div>
+    <div class="note" id="stale-ipos" hidden></div>
+    <div class="ipos" id="ipos"></div>
+    <details class="catalog" id="filings-box"><summary>Latest S-1 / F-1 registrations at the SEC</summary><div class="scroll"><table id="filings"></table></div></details>
+  </section>
+
+  <section class="panel" aria-labelledby="h-ind">
+    <div class="panel-head"><h2 id="h-ind">Economic indicators</h2><span class="src" id="src-ind"></span></div>
+    <div class="note" id="stale-ind" hidden></div>
+    <div class="inds" id="inds"></div>
+    <details class="catalog"><summary>Choose indicators</summary><div class="catlist" id="catlist"></div></details>
+  </section>
+
+  <section class="panel" aria-labelledby="h-cal">
+    <div class="panel-head"><h2 id="h-cal">Next 30 days</h2><span class="src"><a id="ics" href="data/calendar.ics">Subscribe (.ics)</a></span></div>
+    <div class="cal" id="cal"></div>
+    <div class="src" id="src-cal"></div>
+  </section>
+
+  <section class="panel" aria-labelledby="h-move">
+    <div class="panel-head"><h2 id="h-move">Move your watchlist</h2></div>
+    <p class="muted" style="margin:0">Your list lives only in this browser. Copy the code to take it to another phone or browser, then paste it there.</p>
+    <div class="movebox">
+      <input id="code" readonly aria-label="Your watchlist code">
+      <button type="button" id="copy">Copy code</button>
+    </div>
+    <div class="movebox">
+      <input id="paste" placeholder="Paste a code here" aria-label="Paste a watchlist code">
+      <button type="button" id="import">Load list</button>
+    </div>
+    <div class="src" id="move-msg" role="status"></div>
+  </section>
+
+  <footer>
+    <span>Not investment advice. End-of-day data, not real-time. Sources: U.S. Treasury, TreasuryDirect, SEC EDGAR, FRED, the Federal Reserve, BLS (official); Stooq, Yahoo and Nasdaq (unofficial, labelled).</span>
+    <span>Your watchlist, watched IPOs and chosen indicators stay in this browser. The page only downloads public data files; nothing about your list is sent anywhere.</span>
+    <span><a href="https://github.com/ideafactory-labs/ticker-radar">Source on GitHub</a> · <span id="health"></span></span>
+  </footer>
+</div>
+<script src="app.js"></script>
+</body>
+</html>

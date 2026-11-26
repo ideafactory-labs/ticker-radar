@@ -1,0 +1,11 @@
+{
+  "name": "ticker-radar",
+  "private": true,
+  "description": "Free, private market radar on GitHub Pages.",
+  "scripts": {
+    "test": "make test"
+  },
+  "devDependencies": {
+    "playwright": "1.63.0"
+  }
+}
