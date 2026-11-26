@@ -1,0 +1,155 @@
+// Browser checks from the idea's "How we'll know it works", in headless Chromium.
+//   make e2e                        -> builds site/data from fixtures, serves site/ locally
+//   BASE_URL=https://... node tests/e2e.mjs   -> checks the deployed page (make verify)
+// Screenshots go to evidence/ (CI uploads them).
+import { chromium, devices } from 'playwright';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import { serve } from './serve.mjs';
+
+const OUT = process.env.EVIDENCE_DIR || 'evidence';
+fs.mkdirSync(OUT, { recursive: true });
+const LIVE = !!process.env.BASE_URL;
+let server = null;
+let base = process.env.BASE_URL;
+if (!base) { server = await serve(0); base = `http://127.0.0.1:${server.address().port}/`; }
+if (!base.endsWith('/')) base += '/';
+// Fixture data is dated 2026-11-24; pin the page's "today" so the checks never age.
+const Q = LIVE ? '' : '?today=2026-11-25';
+
+const browser = await chromium.launch();
+const results = [];
+let failed = 0;
+async function check(name, fn) {
+  const t0 = Date.now();
+  try { await fn(); results.push(`ok   ${name} (${Date.now() - t0} ms)`); }
+  catch (e) { failed++; results.push(`FAIL ${name}: ${e.message}`); }
+  console.log(results[results.length - 1]);
+}
+async function open(ctxOpts = {}) {
+  const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, ...ctxOpts });
+  // Fonts are cosmetic and come from a third party; keep tests hermetic.
+  await context.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
+  const page = await context.newPage();
+  const errors = [], requests = [];
+  page.on('pageerror', (e) => errors.push(String(e)));
+  page.on('console', (m) => { if (m.type() === 'error' && !/fonts\.g|ERR_FAILED/.test(m.text())) errors.push(m.text()); });
+  page.on('request', (r) => requests.push(r.url()));
+  await page.goto(base + Q, { waitUntil: 'load' });
+  await page.waitForSelector('body[data-ready="1"]', { timeout: 20000 });
+  return { context, page, errors, requests };
+}
+
+await check('every section renders with values, sources and as-of dates; no console errors', async () => {
+  const { context, page, errors } = await open();
+  await page.waitForSelector('.card .px');
+  assert.ok(await page.locator('.card .px').count() >= 1, 'watchlist card with a price');
+  assert.ok(await page.locator('#bills tbody tr').count() >= 5, 'bill rows');
+  assert.ok(await page.locator('#curve circle').count() >= 5, 'yield curve points');
+  assert.ok(await page.locator('#auctions tbody tr').count() >= 1, 'auction rows');
+  assert.ok(await page.locator('.ipo').count() >= 1, 'IPO entries');
+  assert.ok(await page.locator('.ind .val').count() >= 1, 'indicator values');
+  assert.ok(await page.locator('.cal-row').count() >= 1, 'calendar rows');
+  for (const id of ['src-rates', 'src-ipos', 'src-ind', 'src-prices']) {
+    const t = await page.locator('#' + id).textContent();
+    assert.match(t, /as of/, `${id} shows an as-of date: ${t}`);
+  }
+  assert.match(await page.locator('#src-ipos').textContent(), /unofficial/i);
+  await page.screenshot({ path: `${OUT}/1-desktop.png`, fullPage: true });
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+await check('search by company name adds a card; it survives a reload and ✕ removes it', async () => {
+  const { context, page, errors } = await open();
+  await page.fill('#q', 'bank of america');
+  await page.waitForSelector('#results button');
+  const first = await page.locator('#results button').first().textContent();
+  assert.match(first, /^BAC/, `first result is BAC: ${first}`);
+  await page.keyboard.press('Enter');
+  await page.waitForSelector('.card[data-tk="BAC"] .px');
+  await page.reload();
+  await page.waitForSelector('body[data-ready="1"]');
+  await page.waitForSelector('.card[data-tk="BAC"] .px');
+  await page.locator('.card[data-tk="BAC"] .x').click();
+  assert.equal(await page.locator('.card[data-tk="BAC"]').count(), 0);
+  await page.reload();
+  await page.waitForSelector('body[data-ready="1"]');
+  assert.equal(await page.locator('.card[data-tk="BAC"]').count(), 0, 'removal persisted');
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+await check('a ticker without price data says so instead of showing a number', async () => {
+  const { context, page } = await open();
+  await page.fill('#q', 'microsoft');
+  await page.waitForSelector('#results button');
+  assert.match(await page.locator('#results button').first().textContent(), /no price data/);
+  await page.keyboard.press('Enter');
+  await page.waitForSelector('.card[data-tk="MSFT"]');
+  assert.match(await page.locator('.card[data-tk="MSFT"]').textContent(), /No price data/);
+  assert.equal(await page.locator('.card[data-tk="MSFT"] .px').count(), 0);
+  await context.close();
+});
+
+if (!LIVE) await check('"since your last visit" shows a move past the alert level', async () => {
+  const { context, page } = await open();
+  const chips = await page.locator('#alerts .chip').allTextContents();
+  assert.ok(chips.some((c) => /NVDA \+6\.8%/.test(c)), `chips: ${chips}`);
+  await context.close();
+});
+
+await check('the watchlist never leaves the device: no request names a watched ticker', async () => {
+  const { context, page, requests } = await open();
+  await page.fill('#q', 'intel');
+  await page.waitForSelector('#results button');
+  await page.keyboard.press('Enter');
+  await page.waitForSelector('.card[data-tk="INTC"]');
+  await page.waitForTimeout(500);
+  const origin = new URL(base).origin;
+  const ours = requests.filter((u) => u.startsWith(origin)).map((u) => new URL(u).pathname + new URL(u).search);
+  const leaks = ours.filter((u) => /NVDA|AAPL|INTC|SGOV/i.test(u));
+  assert.deepEqual(leaks, [], `requests naming tickers: ${leaks}`);
+  const foreign = requests.filter((u) => !u.startsWith(origin) && !/fonts\.(googleapis|gstatic)\.com/.test(u) && !u.startsWith('data:'));
+  assert.deepEqual(foreign, [], 'no third-party requests');
+  await context.close();
+});
+
+await check('watchlist code moves the list to another browser', async () => {
+  const a = await open();
+  await a.page.fill('#q', 'intel'); await a.page.waitForSelector('#results button'); await a.page.keyboard.press('Enter');
+  await a.page.waitForSelector('.card[data-tk="INTC"]');
+  const code = await a.page.locator('#code').inputValue();
+  assert.match(code, /^TR1\./);
+  await a.context.close();
+  const b = await open();
+  assert.equal(await b.page.locator('.card[data-tk="INTC"]').count(), 0, 'fresh browser starts without INTC');
+  await b.page.fill('#paste', code); await b.page.click('#import');
+  await b.page.waitForSelector('.card[data-tk="INTC"]');
+  assert.match(await b.page.locator('#move-msg').textContent(), /Loaded \d+ tickers/);
+  await b.context.close();
+});
+
+await check('calendar feed is a valid iCalendar file', async () => {
+  const r = await fetch(base + 'data/calendar.ics');
+  assert.equal(r.status, 200);
+  const t = await r.text();
+  assert.match(t, /^BEGIN:VCALENDAR/);
+  assert.match(t, /BEGIN:VEVENT[\s\S]*DTSTART;VALUE=DATE:\d{8}[\s\S]*END:VEVENT/);
+});
+
+await check('phone width: no horizontal scroll, search works', async () => {
+  const { context, page, errors } = await open({ ...devices['Pixel 7'] });
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  assert.ok(overflow <= 1, `page scrolls sideways by ${overflow}px`);
+  await page.fill('#q', 'spy'); await page.waitForSelector('#results button');
+  await page.screenshot({ path: `${OUT}/2-phone.png`, fullPage: false });
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+await browser.close();
+if (server) server.close();
+console.log(`\n${results.length - failed}/${results.length} browser checks passed against ${base}`);
+fs.writeFileSync(`${OUT}/e2e-results.txt`, results.join('\n') + '\n');
+process.exit(failed ? 1 : 0);
