@@ -39,6 +39,7 @@ URLS = {
     "yahoo_spark": "https://query1.finance.yahoo.com/v8/finance/spark?symbols={syms}&range=1y&interval=1d",
     "nasdaq_ipos": "https://api.nasdaq.com/api/ipo/calendar?date={month}",
     "fomc": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm",
+    "fred_calendar": "https://fred.stlouisfed.org/releases/calendar?rid={rid}",
     "bls_ics": "https://www.bls.gov/schedule/news_release/bls.ics",
 }
 
@@ -205,6 +206,13 @@ class Build:
             done = [a for a in done_all if a["high_rate"] is not None][-8:]
             rows = [a for a in up if a["auction_date"] >= self.today.isoformat()] + list(reversed(done))
             diag = {"parsed_announced": len(up), "parsed_results": len(done_all)}
+            if os.environ.get("RADAR_SAMPLE"):
+                try:
+                    rec = (json.loads(raw_done) or [{}])[0]
+                    print("[diag] auction keys:", ",".join(rec.keys()), flush=True)
+                    print("[diag] auction non-empty:", json.dumps({k: v for k, v in rec.items() if v not in ("", None)})[:1500], flush=True)
+                except Exception as e:
+                    print("[diag] auctions unreadable:", e, flush=True)
             if not rows:
                 try:
                     first = (json.loads(raw_done) or [{}])[0]
@@ -391,6 +399,17 @@ class Build:
         for m in meetings:
             events.append({"date": m["start"], "title": "FOMC meeting begins", "kind": "fed"})
             events.append({"date": m["end"], "title": "FOMC decision and press conference", "kind": "fed"})
+        if os.environ.get("RADAR_SAMPLE") and not self.src.fixtures:
+            for rid, name in ((10, "CPI"), (50, "Employment Situation")):
+                try:
+                    html = self.src.text("fred_calendar", str(rid), rid=rid, tries=1, timeout=15)
+                    body = re.sub(r"<script.*?</script>|<style.*?</style>", " ", html, flags=re.S)
+                    i = body.find("release-calendar") if "release-calendar" in body else body.find("<table")
+                    print(f"[diag] fred_calendar {name} len={len(html)} snippet:", " ".join(body[max(i, 0):max(i, 0) + 1800].split()), flush=True)
+                    dates = re.findall(r"(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}", body)
+                    print(f"[diag] fred_calendar {name} dates:", dates[:12], flush=True)
+                except Exception as e:
+                    print(f"[diag] fred_calendar {name} failed: {e}", flush=True)
         keep = re.compile(r"Consumer Price Index|Employment Situation|Producer Price Index|Job Openings|"
                           r"Gross Domestic Product|Personal Income|Retail", re.I)
         try:
