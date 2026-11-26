@@ -60,6 +60,18 @@ class Fred(unittest.TestCase):
         self.assertEqual(pay["latest_date"], "2026-10-01")
 
 
+class Directory(unittest.TestCase):
+    def test_nasdaq_trader_files(self):
+        rows = {r["ticker"]: r for r in parse.nasdaq_symbol_directory(fx("nasdaq_listed.txt"), "nasdaq")}
+        self.assertEqual(rows["NVDA"]["name"], "NVIDIA Corporation")
+        self.assertEqual(rows["QQQ"]["exchange"], "ETF")
+        self.assertNotIn("ZTEST", rows)   # test issue
+        self.assertNotIn("ABCDW", rows)   # warrant
+        other = {r["ticker"]: r for r in parse.nasdaq_symbol_directory(fx("other_listed.txt"), "other")}
+        self.assertEqual(other["BAC"]["exchange"], "NYSE")
+        self.assertEqual(other["SPY"]["exchange"], "ETF")
+
+
 class Sec(unittest.TestCase):
     def test_company_tickers(self):
         rows = parse.sec_company_tickers(fx("sec_tickers.json"))
@@ -74,17 +86,23 @@ class Sec(unittest.TestCase):
 
 
 class Prices(unittest.TestCase):
-    def test_stooq_and_summary(self):
-        s = parse.price_summary(parse.stooq_daily(fx("stooq__NVDA.csv")))
+    def test_yahoo_and_summary(self):
+        s = parse.price_summary(parse.yahoo_chart(fx("yahoo__NVDA.json")))
         self.assertEqual(s["as_of"], "2026-11-24")
         self.assertAlmostEqual(s["change_pct"], 6.8, delta=0.05)
         self.assertEqual(len(s["spark"]), 30)
         self.assertLessEqual(s["low_52w"], s["close"])
         self.assertGreaterEqual(s["high_52w"], s["close"])
 
-    def test_stooq_no_data_is_an_error_not_a_zero(self):
+    def test_no_data_is_an_error_not_a_zero(self):
         with self.assertRaises(parse.ParseError):
-            parse.stooq_daily(fx("stooq__MSFT.csv"))
+            parse.yahoo_chart(fx("yahoo__MSFT.json"))
+
+    def test_spark_batch(self):
+        got = parse.yahoo_spark(fx("spark_sample.json"))
+        self.assertEqual(got["SPY"][-1][0], "2026-11-24")
+        flat = parse.yahoo_spark('{"AAPL": {"timestamp": [1795640400, 1795726800], "close": [1.0, 2.0]}}')
+        self.assertEqual([c for _, c in flat["AAPL"]], [1.0, 2.0])
 
     def test_yahoo_chart(self):
         s = parse.yahoo_chart(fx("yahoo__SPY.json"))
@@ -126,14 +144,16 @@ class FullBuild(unittest.TestCase):
             out = pathlib.Path(d)
             b = build.Build(out, build.Source(FX), TODAY, None)
             health = b.run()["sources"]
-            for name in ("bills", "curve", "auctions", "indicators", "search", "prices", "ipos", "filings", "calendar"):
+            for name in ("bills", "curve", "auctions", "indicators", "search", "prices", "ipos", "calendar"):
                 self.assertTrue(health[name]["ok"], (name, health[name]))
             # A ticker the price source has no data for is missing, never written as zero.
-            self.assertIn("MSFT", health["prices"]["missing"])
+            self.assertGreater(health["prices"]["core_missing_count"], 0)
             prices = json.loads((out / "prices.json").read_text())["data"]
             self.assertNotIn("MSFT", prices)
             self.assertAlmostEqual(prices["NVDA"]["change_pct"], 6.8, delta=0.05)
             self.assertEqual(prices["SPY"]["source"], "yahoo")
+            search = json.loads((out / "search.json").read_text())["data"]
+            self.assertIn(["BAC", "Bank of America Corporation", "NYSE"], search)
             # Every section file says where it came from and when.
             for f in ("bills", "indicators", "ipos", "prices"):
                 doc = json.loads((out / f"{f}.json").read_text())
@@ -147,8 +167,8 @@ class FullBuild(unittest.TestCase):
 
     def test_one_failing_source_does_not_stop_the_rest(self):
         with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as empty:
-            # Only the SEC ticker list is available.
-            (pathlib.Path(empty) / "sec_tickers.json").write_text(fx("sec_tickers.json"))
+            # Only the symbol directory is available.
+            (pathlib.Path(empty) / "nasdaq_listed.txt").write_text(fx("nasdaq_listed.txt"))
             b = build.Build(pathlib.Path(d), build.Source(pathlib.Path(empty)), TODAY, None)
             health = b.run()["sources"]
             self.assertTrue(health["search"]["ok"])

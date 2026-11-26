@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 USER_AGENT = "ticker-radar/1.0 (+https://github.com/ideafactory-labs/ticker-radar)"
 
 # Minimum seconds between requests to the same host (fair use; SEC allows 10/s).
-_MIN_GAP = {"www.sec.gov": 0.15, "stooq.com": 0.25, "query1.finance.yahoo.com": 0.25}
+_MIN_GAP = {"www.sec.gov": 0.15, "query1.finance.yahoo.com": 0.25}
 _last: dict[str, float] = {}
 _lock = threading.Lock()
 

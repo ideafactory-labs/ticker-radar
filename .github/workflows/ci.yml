@@ -71,6 +71,8 @@ jobs:
       - name: Probe live sources
         env:
           RADAR_SAMPLE: "1"
+          # Optional repository variable: SEC requires a contact in the User-Agent.
+          SEC_USER_AGENT: ${{ vars.SEC_USER_AGENT }}
         run: |
           python3 -m radar.build --out build/probe | tee build-probe.txt
           {

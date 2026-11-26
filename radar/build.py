@@ -33,8 +33,10 @@ URLS = {
     "fred": "https://fred.stlouisfed.org/graph/fredgraph.csv?id={id}&cosd={start}",
     "sec_tickers": "https://www.sec.gov/files/company_tickers_exchange.json",
     "sec_filings": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type={form}&company=&dateb=&owner=include&count=100&output=atom",
-    "stooq": "https://stooq.com/q/d/l/?s={sym}&i=d",
+    "nasdaq_listed": "https://www.nasdaqtrader.com/dynamic/SymDir/nasdaqlisted.txt",
+    "other_listed": "https://www.nasdaqtrader.com/dynamic/SymDir/otherlisted.txt",
     "yahoo": "https://query1.finance.yahoo.com/v8/finance/chart/{sym}?range=1y&interval=1d",
+    "yahoo_spark": "https://query1.finance.yahoo.com/v8/finance/spark?symbols={syms}&range=1y&interval=1d",
     "nasdaq_ipos": "https://api.nasdaq.com/api/ipo/calendar?date={month}",
     "fomc": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm",
     "bls_ics": "https://www.bls.gov/schedule/news_release/bls.ics",
@@ -89,7 +91,8 @@ class Source:
     def __init__(self, fixtures: pathlib.Path | None):
         self.fixtures = fixtures
 
-    def text(self, key: str, arg: str = "", *, tries: int = 3, headers: dict | None = None, **fmt) -> str:
+    def text(self, key: str, arg: str = "", *, tries: int = 3, headers: dict | None = None,
+             timeout: float = 20, **fmt) -> str:
         if self.fixtures:
             stem = key + (f"__{arg}" if arg else "")
             hits = sorted(self.fixtures.glob(stem + ".*"))
@@ -97,8 +100,15 @@ class Source:
                 raise net.FetchError(f"no fixture {stem}")
             return hits[0].read_text()
         url = URLS[key].format(**fmt)
+        if key.startswith("sec_"):
+            # SEC requires a User-Agent naming a contact; never invent one. Set the repository
+            # variable SEC_USER_AGENT (e.g. "ticker-radar you@example.com") to enable SEC data.
+            ua = os.environ.get("SEC_USER_AGENT", "").strip()
+            if not ua:
+                raise net.FetchError("SEC needs a contact User-Agent: set the SEC_USER_AGENT repository variable")
+            headers = {**(headers or {}), "User-Agent": ua}
         try:
-            body = net.text(url, tries=tries, headers=headers)
+            body = net.text(url, tries=tries, headers=headers, timeout=timeout)
         except Exception as e:
             self._sample(key, url, f"<{e}>")
             raise
@@ -189,11 +199,20 @@ class Build:
             return pts, series[0]["date"], len(pts)
 
         def auctions():
-            up = parse.treasury_auctions(self.src.text("auctions_announced"), today=self.today)
-            done = parse.treasury_auctions(self.src.text("auctions_results"), today=self.today)
-            done = [a for a in done if a["high_rate"] is not None][-8:]
+            raw_up, raw_done = self.src.text("auctions_announced"), self.src.text("auctions_results")
+            up = parse.treasury_auctions(raw_up, today=self.today)
+            done_all = parse.treasury_auctions(raw_done, today=self.today)
+            done = [a for a in done_all if a["high_rate"] is not None][-8:]
             rows = [a for a in up if a["auction_date"] >= self.today.isoformat()] + list(reversed(done))
-            return rows, self.today.isoformat(), len(rows)
+            diag = {"parsed_announced": len(up), "parsed_results": len(done_all)}
+            if not rows:
+                try:
+                    first = (json.loads(raw_done) or [{}])[0]
+                    diag["result_fields"] = {k: first.get(k) for k in first
+                                             if any(w in k.lower() for w in ("term", "date", "rate", "type"))}
+                except Exception as e:
+                    diag["result_fields"] = f"unreadable: {e}"
+            return rows, self.today.isoformat(), len(rows), diag
 
         self.section("bills", "U.S. Treasury, Daily Treasury Bill Rates", True, bills)
         self.section("curve", "U.S. Treasury, Daily Par Yield Curve Rates", True, curve)
@@ -228,58 +247,90 @@ class Build:
 
         def search():
             nonlocal listed
-            rows = parse.sec_company_tickers(self.src.text("sec_tickers"))
-            listed = [r for r in rows if (r["exchange"] or "").lower() in LISTED]
-            idx = [[r["ticker"], r["name"], r["exchange"] or ""] for r in listed]
-            have = {r[0] for r in idx}
-            idx += [[t, n, "ETF"] for t, n in ETFS.items() if t not in have]
-            return idx, self.today.isoformat(), len(idx)
+            rows, errs = [], []
+            for key, kind in (("nasdaq_listed", "nasdaq"), ("other_listed", "other")):
+                try:
+                    rows += parse.nasdaq_symbol_directory(self.src.text(key, tries=2), kind)
+                except Exception as e:
+                    errs.append(f"{key}: {e}")
+            source = "Nasdaq Trader symbol directory"
+            if not rows:  # fall back to SEC's list when a contact is configured
+                rows = [{**r, "etf": False} for r in parse.sec_company_tickers(self.src.text("sec_tickers"))
+                        if (r["exchange"] or "").lower() in LISTED]
+                source = "SEC company tickers"
+            listed = rows
+            seen, idx = set(), []
+            for r in rows:
+                if r["ticker"] not in seen:
+                    seen.add(r["ticker"]); idx.append([r["ticker"], r["name"], r["exchange"] or ""])
+            idx += [[t, n, "ETF"] for t, n in ETFS.items() if t not in seen]
+            return idx, self.today.isoformat(), len(idx), {"from": source, **({"missing": errs} if errs else {})}
 
-        self.section("search", "SEC company tickers + a fixed ETF list", True, search)
+        self.section("search", "Nasdaq Trader symbol directory + a fixed ETF list", True, search)
 
         def prices():
-            seen, tickers = set(), []
-            for r in listed:
-                if r["ticker"] not in seen and len(tickers) < UNIVERSE_STOCKS:
-                    seen.add(r["ticker"]); tickers.append(r["ticker"])
-            tickers += [t for t in ETFS if t not in seen]
-            if not tickers:  # SEC failed: still price the ETFs and a handful of large names
-                tickers = list(ETFS) + ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "JPM"]
-            fails = {"stooq": 0, "yahoo": 0}
-            used = {"stooq": 0, "yahoo": 0}
-            ok: dict[str, str] = {}
+            core = [t for ln in (HERE / "core_tickers.txt").read_text().splitlines()
+                    if not ln.startswith("#") for t in ln.split()]
+            core += [t for t in ETFS if t not in core]
+            wide = [r["ticker"] for r in listed if not r.get("etf")] + [r["ticker"] for r in listed if r.get("etf") and r["ticker"] in ETFS]
             bundle: dict[str, dict] = {}
+            notes: dict = {}
+
+            def yahoo_sym(t):
+                return t.replace(".", "-")
+
+            # Phase 1: batch pricing of the whole listed universe (fast when Yahoo allows it).
+            t0, budget = time.monotonic(), float(os.environ.get("BATCH_BUDGET_S", "300"))
+            if wide and not self.src.fixtures:
+                ordered = core + [t for t in wide if t not in set(core)]
+                batches = [ordered[i:i + 20] for i in range(0, len(ordered), 20)]
+                failures = 0
+                for i, batch in enumerate(batches):
+                    if time.monotonic() - t0 > budget or (failures >= 3 and not bundle):
+                        notes["batch_stopped"] = f"after {i} of {len(batches)} batches"
+                        break
+                    try:
+                        txt = self.src.text("yahoo_spark", syms=",".join(yahoo_sym(t) for t in batch), tries=1, timeout=15)
+                        got = parse.yahoo_spark(txt)
+                        back = {yahoo_sym(t): t for t in batch}
+                        for sym, series in got.items():
+                            if sym in back and len(series) >= 2:
+                                bundle[back[sym]] = {"source": "yahoo", **parse.price_summary(series)}
+                    except Exception as e:
+                        failures += 1
+                        notes["batch_error"] = str(e)[:160]
+                notes["batch_priced"] = len(bundle)
+
+            # Phase 2: one request per core ticker still missing, within its own budget.
+            t1, budget2 = time.monotonic(), float(os.environ.get("CHART_BUDGET_S", "240"))
+            todo = [t for t in core if t not in bundle]
+            fails = 0
 
             def one(t):
-                for prov in ("stooq", "yahoo"):
-                    if fails[prov] >= 8 and used[prov] == 0:
-                        continue  # this provider looks blocked; stop hammering it
-                    try:
-                        sym = (t.lower().replace(".", "-") + ".us") if prov == "stooq" else t.replace(".", "-")
-                        txt = self.src.text(prov, sym if not self.src.fixtures else t, sym=sym, tries=1)
-                        series = parse.stooq_daily(txt) if prov == "stooq" else parse.yahoo_chart(txt)
-                        used[prov] += 1
-                        return t, prov, parse.price_summary(series)
-                    except Exception:
-                        fails[prov] += 1
-                return t, None, None
+                nonlocal fails
+                if time.monotonic() - t1 > budget2 or (fails >= 8 and not bundle):
+                    return t, None
+                try:
+                    txt = self.src.text("yahoo", t if self.src.fixtures else yahoo_sym(t), sym=yahoo_sym(t), tries=1, timeout=12)
+                    return t, parse.price_summary(parse.yahoo_chart(txt))
+                except Exception:
+                    fails += 1
+                    return t, None
 
             with cf.ThreadPoolExecutor(4) as ex:
-                for t, prov, summ in ex.map(one, tickers):
+                for t, summ in ex.map(one, todo):
                     if summ:
-                        ok[t] = prov
-                        bundle[t] = {"source": prov, **summ}
-            if not ok:
-                raise parse.ParseError(f"no prices from stooq or yahoo for {len(tickers)} tickers")
+                        bundle[t] = {"source": "yahoo", **summ}
+            if not bundle:
+                raise parse.ParseError(f"no prices from Yahoo ({notes.get('batch_error', 'chart requests failed')})")
             as_of = max(v["as_of"] for v in bundle.values())
-            detail = {"requested": len(tickers),
-                      "by_source": {p: sum(1 for v in ok.values() if v == p) for p in used},
-                      "missing": sorted(set(tickers) - set(ok))[:40]}
+            missing = sorted(set(core) - set(bundle))
+            detail = {**notes, "core_missing_count": len(missing), "core_missing": missing[:40], "wide_universe": len(wide)}
             # One file for every priced ticker, so the page never asks the server for the
             # tickers you watch: what you watch stays on your device.
-            return dict(sorted(bundle.items())), as_of, len(ok), detail
+            return dict(sorted(bundle.items())), as_of, len(bundle), detail
 
-        self.section("prices", "Stooq daily prices (Yahoo chart as fallback)", False, prices)
+        self.section("prices", "Yahoo Finance daily closes", False, prices)
 
     def ipos(self):
         def run():
@@ -288,7 +339,10 @@ class Build:
             rows, errs = {}, []
             for m in months + [nxt]:
                 try:
-                    txt = self.src.text("nasdaq_ipos", m, month=m, headers={"Accept": "application/json, text/plain, */*",
+                    if errs and all("timed out" in e or "Timeout" in e for e in errs):
+                        errs.append(f"{m}: skipped after timeouts")
+                        continue
+                    txt = self.src.text("nasdaq_ipos", m, month=m, tries=1, timeout=10, headers={"Accept": "application/json, text/plain, */*",
                                                                           "Origin": "https://www.nasdaq.com", "Referer": "https://www.nasdaq.com/"})
                     for r in parse.nasdaq_ipo_calendar(txt):
                         key = (r["ticker"] or r["name"]).upper()
@@ -306,6 +360,7 @@ class Build:
             return out[:60], self.today.isoformat(), len(out)
 
         self.section("ipos", "Nasdaq IPO calendar", False, run)
+        # SEC filings below need SEC_USER_AGENT; without it the section is skipped quickly.
 
         def filings():
             out, errs = [], []
@@ -328,7 +383,7 @@ class Build:
         horizon = (self.today + dt.timedelta(days=45)).isoformat()
         today = self.today.isoformat()
         try:
-            meetings = parse.fomc_meetings(self.src.text("fomc"))
+            meetings = parse.fomc_meetings(self.src.text("fomc", tries=2))
             notes["fomc"] = "federalreserve.gov"
         except Exception as e:
             meetings = json.loads((HERE / "fomc_fallback.json").read_text())["meetings"]
@@ -339,7 +394,7 @@ class Build:
         keep = re.compile(r"Consumer Price Index|Employment Situation|Producer Price Index|Job Openings|"
                           r"Gross Domestic Product|Personal Income|Retail", re.I)
         try:
-            for ev in parse.ics_events(self.src.text("bls_ics")):
+            for ev in parse.ics_events(self.src.text("bls_ics", tries=1, timeout=10)):
                 if keep.search(ev["summary"]):
                     events.append({"date": ev["date"], "title": ev["summary"], "kind": "data"})
             notes["bls"] = "bls.gov release schedule"
