@@ -1,0 +1,44 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  # `checks` is the required status check in the repository ruleset.
+  checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Workflow policy (pinned actions, no pull_request_target, explicit permissions)
+        run: python3 .factory/check_workflows.py .github/workflows
+
+      - name: actionlint (pinned release, checksum-verified)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download v1.7.12 -R rhysd/actionlint -p actionlint_1.7.12_linux_amd64.tar.gz
+          echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  actionlint_1.7.12_linux_amd64.tar.gz" | sha256sum -c -
+          tar -xzf actionlint_1.7.12_linux_amd64.tar.gz actionlint
+          ./actionlint -color
+
+      - name: Project checks
+        run: make test
+
+      # Tier 0 of the cost ladder: a throwaway Kubernetes cluster on the runner, for
+      # projects that ship an e2e/kind.sh. Free on public repositories.
+      - name: kind cluster
+        if: hashFiles('e2e/kind.sh') != ''
+        uses: helm/kind-action@ea822c7bf1874f08e5a491df991c228edffc3376 # v1.15.2
+
+      - name: e2e on kind
+        if: hashFiles('e2e/kind.sh') != ''
+        run: bash e2e/kind.sh
