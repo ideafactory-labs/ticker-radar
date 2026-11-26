@@ -121,7 +121,6 @@ class Build:
         self.out, self.src, self.today, self.previous_base = out, src, today, previous_base
         self.health: dict[str, dict] = {}
         out.mkdir(parents=True, exist_ok=True)
-        (out / "t").mkdir(exist_ok=True)
 
     # ---- bookkeeping
     def write(self, name: str, payload) -> None:
@@ -249,6 +248,7 @@ class Build:
             fails = {"stooq": 0, "yahoo": 0}
             used = {"stooq": 0, "yahoo": 0}
             ok: dict[str, str] = {}
+            bundle: dict[str, dict] = {}
 
             def one(t):
                 for prov in ("stooq", "yahoo"):
@@ -268,17 +268,18 @@ class Build:
                 for t, prov, summ in ex.map(one, tickers):
                     if summ:
                         ok[t] = prov
-                        self.write(f"t/{safe(t)}.json", {"ticker": t, "source": prov, "official": False,
-                                                         "fetched_at": _now(), **summ})
+                        bundle[t] = {"source": prov, **summ}
             if not ok:
                 raise parse.ParseError(f"no prices from stooq or yahoo for {len(tickers)} tickers")
-            as_of = max(json.loads((self.out / f"t/{safe(t)}.json").read_text())["as_of"] for t in ok)
+            as_of = max(v["as_of"] for v in bundle.values())
             detail = {"requested": len(tickers),
                       "by_source": {p: sum(1 for v in ok.values() if v == p) for p in used},
                       "missing": sorted(set(tickers) - set(ok))[:40]}
-            return sorted(ok), as_of, len(ok), detail
+            # One file for every priced ticker, so the page never asks the server for the
+            # tickers you watch: what you watch stays on your device.
+            return dict(sorted(bundle.items())), as_of, len(ok), detail
 
-        self.section("universe", "Stooq daily prices (Yahoo chart as fallback) — unofficial", False, prices)
+        self.section("prices", "Stooq daily prices (Yahoo chart as fallback)", False, prices)
 
     def ipos(self):
         def run():
@@ -304,7 +305,7 @@ class Build:
             out.sort(key=lambda r: (r.get("trade_date") or r.get("filed_date") or ""), reverse=True)
             return out[:60], self.today.isoformat(), len(out)
 
-        self.section("ipos", "Nasdaq IPO calendar — unofficial", False, run)
+        self.section("ipos", "Nasdaq IPO calendar", False, run)
 
         def filings():
             out, errs = [], []

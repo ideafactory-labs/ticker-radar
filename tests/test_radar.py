@@ -126,18 +126,20 @@ class FullBuild(unittest.TestCase):
             out = pathlib.Path(d)
             b = build.Build(out, build.Source(FX), TODAY, None)
             health = b.run()["sources"]
-            for name in ("bills", "curve", "auctions", "indicators", "search", "universe", "ipos", "filings", "calendar"):
+            for name in ("bills", "curve", "auctions", "indicators", "search", "prices", "ipos", "filings", "calendar"):
                 self.assertTrue(health[name]["ok"], (name, health[name]))
             # A ticker the price source has no data for is missing, never written as zero.
-            self.assertIn("MSFT", health["universe"]["missing"])
-            self.assertFalse((out / "t" / "MSFT.json").exists())
-            self.assertTrue((out / "t" / "NVDA.json").exists())
+            self.assertIn("MSFT", health["prices"]["missing"])
+            prices = json.loads((out / "prices.json").read_text())["data"]
+            self.assertNotIn("MSFT", prices)
+            self.assertAlmostEqual(prices["NVDA"]["change_pct"], 6.8, delta=0.05)
+            self.assertEqual(prices["SPY"]["source"], "yahoo")
             # Every section file says where it came from and when.
-            for f in ("bills", "indicators", "ipos", "universe"):
+            for f in ("bills", "indicators", "ipos", "prices"):
                 doc = json.loads((out / f"{f}.json").read_text())
                 self.assertTrue(doc["source"] and doc["as_of"] and doc["fetched_at"])
                 self.assertFalse(doc["stale"])
-            self.assertFalse(json.loads((out / "universe.json").read_text())["official"])
+            self.assertFalse(json.loads((out / "prices.json").read_text())["official"])
             cal = json.loads((out / "calendar.json").read_text())["data"]
             kinds = {e["kind"] for e in cal}
             self.assertEqual(kinds, {"fed", "data", "auction", "ipo"})
