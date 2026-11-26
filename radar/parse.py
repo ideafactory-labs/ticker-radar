@@ -109,11 +109,11 @@ def treasury_auctions(json_text: str, *, today: Date) -> list[dict]:
         data = data.get("securityList") or data.get("data") or []
     out = []
     for s in data:
-        term = (s.get("securityTerm") or s.get("term") or "").strip()
-        ad = s.get("auctionDate")
+        term = (s.get("securityTerm") or s.get("term") or s.get("securityTermWeekYear") or "").strip()
+        ad = s.get("auctionDate") or s.get("auction_date")
         if not term or not ad:
             continue
-        rate = _num(s.get("highInvestmentRate")) or _num(s.get("highYield"))
+        rate = _num(s.get("highInvestmentRate")) or _num(s.get("highYield")) or _num(s.get("highDiscountRate"))
         out.append({
             "security": f"{term} {s.get('securityType', 'Bill')}".strip(),
             "auction_date": _date(ad).isoformat(),
@@ -212,20 +212,40 @@ def sec_current_filings(atom_text: str) -> list[dict]:
     return out
 
 
-# ---------------------------------------------------------------- prices
-def stooq_daily(csv_text: str) -> list[tuple[str, float]]:
-    """Stooq daily history CSV -> [(date, close)] oldest first."""
-    if csv_text.strip().lower().startswith(("no data", "exceeded", "<")):
-        raise ParseError(f"stooq: {csv_text.strip()[:60]!r}")
-    rows = list(csv.DictReader(io.StringIO(csv_text)))
-    if not rows or "Close" not in rows[0]:
-        raise ParseError(f"stooq: unexpected CSV {csv_text[:80]!r}")
-    out = [(_date(r["Date"]).isoformat(), _num(r["Close"])) for r in rows if _num(r.get("Close")) is not None]
-    if len(out) < 2:
-        raise ParseError("stooq: too few rows")
+SUFFIXES = re.compile(r"\s+(?:-\s+)?(?:Common Stock|Ordinary Shares|American Depositary Shares.*|Common Shares.*|Shares of Beneficial Interest)\s*$", re.I)
+
+
+def nasdaq_symbol_directory(text: str, kind: str) -> list[dict]:
+    """nasdaqtrader.com nasdaqlisted.txt / otherlisted.txt (pipe-delimited) -> listed securities.
+
+    Skips test issues, and warrants/units/rights/preferreds whose names say so."""
+    lines = [ln for ln in text.splitlines() if ln and not ln.startswith("File Creation Time")]
+    if len(lines) < 2 or "|" not in lines[0]:
+        raise ParseError(f"symbol directory: unexpected text {text[:60]!r}")
+    head = lines[0].split("|")
+    idx = {h.strip(): i for i, h in enumerate(head)}
+    sym_col = "Symbol" if kind == "nasdaq" else "ACT Symbol"
+    if sym_col not in idx or "Security Name" not in idx:
+        raise ParseError(f"symbol directory: header {head}")
+    exch_map = {"A": "NYSE American", "N": "NYSE", "P": "NYSE Arca", "Z": "Cboe", "V": "IEX"}
+    out = []
+    for ln in lines[1:]:
+        f = ln.split("|")
+        if len(f) < len(head) or f[idx["Test Issue"]].strip() == "Y":
+            continue
+        name = f[idx["Security Name"]].strip()
+        if re.search(r"\b(Warrant|Unit|Right|Preferred|Depositary Shares, each representing|Notes due)\b", name, re.I) and not re.search(r"\bETF\b|Trust", name):
+            continue
+        etf = f[idx["ETF"]].strip() == "Y" if "ETF" in idx else False
+        sym = f[idx[sym_col]].strip().replace("$", "-")
+        exch = "Nasdaq" if kind == "nasdaq" else exch_map.get(f[idx["Exchange"]].strip(), "Other")
+        out.append({"ticker": sym.upper(), "name": SUFFIXES.sub("", name), "exchange": "ETF" if etf else exch, "etf": etf})
+    if not out:
+        raise ParseError("symbol directory: no rows")
     return out
 
 
+# ---------------------------------------------------------------- prices
 def yahoo_chart(json_text: str) -> list[tuple[str, float]]:
     """Yahoo v8 chart JSON -> [(date, close)] oldest first."""
     try:
@@ -237,6 +257,37 @@ def yahoo_chart(json_text: str) -> list[tuple[str, float]]:
     out = [(dt.datetime.fromtimestamp(t, dt.timezone.utc).date().isoformat(), float(c)) for t, c in zip(ts, closes) if c is not None]
     if len(out) < 2:
         raise ParseError("yahoo: too few rows")
+    return out
+
+
+def yahoo_spark(json_text: str) -> dict[str, list[tuple[str, float]]]:
+    """Yahoo spark JSON (several symbols per call) -> {symbol: [(date, close)]}.
+
+    Accepts both shapes Yahoo has served: {"spark": {"result": [{"symbol", "response": [chart]}]}}
+    and {"AAPL": {"timestamp": [...], "close": [...]}}."""
+    try:
+        data = json.loads(json_text)
+    except json.JSONDecodeError as e:
+        raise ParseError(f"spark: not JSON ({e})")
+    out: dict[str, list[tuple[str, float]]] = {}
+
+    def series(ts, closes):
+        return [(dt.datetime.fromtimestamp(t, dt.timezone.utc).date().isoformat(), float(c))
+                for t, c in zip(ts or [], closes or []) if c is not None]
+
+    if isinstance(data, dict) and isinstance(data.get("spark"), dict):
+        for r in data["spark"].get("result") or []:
+            try:
+                ch = r["response"][0]
+                out[r["symbol"]] = series(ch["timestamp"], ch["indicators"]["quote"][0]["close"])
+            except (KeyError, IndexError, TypeError):
+                continue
+    elif isinstance(data, dict):
+        for sym, v in data.items():
+            if isinstance(v, dict) and "close" in v:
+                out[sym] = series(v.get("timestamp"), v.get("close"))
+    if not out:
+        raise ParseError(f"spark: no series in {json_text[:80]!r}")
     return out
 
 
