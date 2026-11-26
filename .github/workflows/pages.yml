@@ -36,6 +36,7 @@ jobs:
         if: steps.site.outputs.has_site == 'true'
         env:
           PREVIOUS_BASE: https://ideafactory-labs.github.io/ticker-radar/
+          SEC_USER_AGENT: ${{ vars.SEC_USER_AGENT }}
         run: |
           python3 -m radar.build --out site/data | tee build.txt
           {
