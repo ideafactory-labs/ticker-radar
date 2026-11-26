@@ -404,10 +404,12 @@ class Build:
                 try:
                     html = self.src.text("fred_calendar", str(rid), rid=rid, tries=1, timeout=15)
                     body = re.sub(r"<script.*?</script>|<style.*?</style>", " ", html, flags=re.S)
-                    i = body.find("release-calendar") if "release-calendar" in body else body.find("<table")
-                    print(f"[diag] fred_calendar {name} len={len(html)} snippet:", " ".join(body[max(i, 0):max(i, 0) + 1800].split()), flush=True)
-                    dates = re.findall(r"(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}", body)
-                    print(f"[diag] fred_calendar {name} dates:", dates[:12], flush=True)
+                    main = body[body.find('id="content-container"'):]
+                    text = " ".join(re.sub(r"<[^>]+>", " ", main).split())
+                    print(f"[diag] fred_calendar {name} text:", text[:1500], flush=True)
+                    j = main.find("Consumer Price Index" if rid == 10 else "Employment Situation")
+                    print(f"[diag] fred_calendar {name} html near release:", " ".join(main[max(j - 900, 0):j + 500].split()), flush=True)
+                    print(f"[diag] fred_calendar {name} links:", sorted(set(re.findall(r'href="(/releases/calendar[^"]*)"', html)))[:25], flush=True)
                 except Exception as e:
                     print(f"[diag] fred_calendar {name} failed: {e}", flush=True)
         keep = re.compile(r"Consumer Price Index|Employment Situation|Producer Price Index|Job Openings|"

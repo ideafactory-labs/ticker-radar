@@ -1,20 +1,27 @@
 [
  {
-  "cusip": "912797AB1",
+  "cusip": "912797WH6",
   "securityType": "Bill",
   "securityTerm": "4-Week",
-  "auctionDate": "2026-11-24T00:00:00",
+  "announcementDate": "2026-11-24T00:00:00",
+  "competitiveAuctionCloseDate": "2026-11-25T00:00:00",
   "issueDate": "2026-11-27T00:00:00",
-  "highInvestmentRate": "4.310",
-  "highDiscountRate": "4.240"
+  "highRate": "4.115",
+  "investmentRate": "4.197",
+  "bidToCoverRatio": "2.64",
+  "cashManagementBill": "No",
+  "highPrice": "99.679944"
  },
  {
   "cusip": "912797AB2",
   "securityType": "Bill",
   "securityTerm": "13-Week",
-  "auctionDate": "2026-11-23T00:00:00",
+  "announcementDate": "2026-11-19T00:00:00",
+  "competitiveAuctionCloseDate": "2026-11-23T00:00:00",
   "issueDate": "2026-11-27T00:00:00",
-  "highInvestmentRate": "4.255",
-  "highDiscountRate": "4.150"
+  "highRate": "4.150",
+  "investmentRate": "4.255",
+  "bidToCoverRatio": "2.81",
+  "cashManagementBill": "No"
  }
 ]
