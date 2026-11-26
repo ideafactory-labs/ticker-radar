@@ -42,3 +42,27 @@ jobs:
       - name: e2e on kind
         if: hashFiles('e2e/kind.sh') != ''
         run: bash e2e/kind.sh
+
+  # The idea's first gate: fetch every live source once from a GitHub-hosted runner and
+  # record what worked. Informational, not required: a provider outage must not block a
+  # code change. The table it prints is the evidence for the PR.
+  sources:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Probe live sources
+        env:
+          RADAR_SAMPLE: "1"
+          # Optional repository variable: SEC requires a contact in the User-Agent.
+          SEC_USER_AGENT: ${{ vars.SEC_USER_AGENT }}
+        run: |
+          python3 -m radar.build --out build/probe | tee build-probe.txt
+          {
+            echo '### Live source probe'
+            echo '```'
+            grep -E '^(ok|FAIL)' build-probe.txt | cut -c1-300
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
