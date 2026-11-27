@@ -21,7 +21,7 @@ import sys
 import time
 import traceback
 
-from . import net, parse
+from . import macro, net, parse
 
 HERE = pathlib.Path(__file__).parent
 
@@ -31,6 +31,7 @@ URLS = {
     "auctions_announced": "https://www.treasurydirect.gov/TA_WS/securities/announced?format=json&type=Bill",
     "auctions_results": "https://www.treasurydirect.gov/TA_WS/securities/auctioned?format=json&type=Bill&days=21",
     "fred": "https://fred.stlouisfed.org/graph/fredgraph.csv?id={id}&cosd={start}",
+    "fred_full": "https://fred.stlouisfed.org/graph/fredgraph.csv?id={id}",
     "sec_tickers": "https://www.sec.gov/files/company_tickers_exchange.json",
     "sec_filings": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type={form}&company=&dateb=&owner=include&count=100&output=atom",
     "nasdaq_listed": "https://www.nasdaqtrader.com/dynamic/SymDir/nasdaqlisted.txt",
@@ -270,6 +271,7 @@ class Build:
                         if (r["exchange"] or "").lower() in LISTED]
                 source = "SEC company tickers"
             listed = rows
+            self.stock_tickers = {r["ticker"] for r in rows if not r.get("etf")}
             seen, idx = set(), []
             for r in rows:
                 if r["ticker"] not in seen:
@@ -360,6 +362,63 @@ class Build:
 
         if (self.out / "prices.json").exists() and self.health.get("prices", {}).get("ok"):
             self.section("glance", "Yahoo Finance daily closes (one ETF per asset class)", False, glance)
+
+    def gist(self):
+        """The dials at the top of the page. Each dial is built on its own: one missing series
+        drops that dial (and says so), never the others."""
+        cache: dict[str, list] = {}
+
+        def fred(sid, optional=False):
+            if sid not in cache:
+                try:
+                    cache[sid] = parse.fred_csv(self.src.text("fred_full", sid, id=sid, tries=2), sid)
+                except Exception:
+                    if not optional:
+                        raise
+                    cache[sid] = None
+            return cache[sid]
+
+        def market():
+            doc = json.loads((self.out / "prices.json").read_text())["data"]
+            stocks = getattr(self, "stock_tickers", set())
+            pct, n = macro.breadth(doc, lambda t: t in stocks)
+            return macro.market_dial(doc["SPY"], pct, n)
+
+        builders = [
+            ("valuation", lambda: macro.valuation_dial(fred("NCBEILQ027S"), fred("GDP"))),
+            ("recession", lambda: macro.recession_dial(fred("T10Y3M"), fred("USREC"), fred("SAHMREALTIME"),
+                                                       fred("RECPROUSM156N", True), fred("T10Y2Y", True))),
+            ("credit", lambda: macro.credit_dial(fred("NFCI"), fred("VIXCLS"), fred("BAMLH0A0HYM2", True))),
+            ("inflation", lambda: macro.inflation_dial(fred("CPIAUCSL"), fred("CPILFESL"), fred("T5YIE", True))),
+            ("jobs", lambda: macro.jobs_dial(fred("UNRATE"), fred("SAHMREALTIME"), fred("PAYEMS"), fred("IC4WSA", True))),
+            ("market", market),
+        ]
+
+        def run():
+            dials, missing = [], {}
+            for key, fn in builders:
+                try:
+                    dials.append(fn())
+                except Exception as e:
+                    missing[key] = f"{type(e).__name__}: {e}"[:160]
+            if not dials:
+                raise parse.ParseError(f"no dials: {missing}")
+            recessions = []
+            usrec = cache.get("USREC")
+            if usrec:  # shaded bands for the history charts
+                start = None
+                for d, v in usrec:
+                    if v >= 0.5 and start is None:
+                        start = d
+                    elif v < 0.5 and start is not None:
+                        recessions.append([start, d]); start = None
+                if start:
+                    recessions.append([start, usrec[-1][0]])
+            data = {"summary": macro.summary(dials), "dials": dials, "missing": missing, "recessions": recessions}
+            extra = {"states": {d["key"]: d["status"] for d in dials}, **({"missing": missing} if missing else {})}
+            return data, max(d["as_of"] for d in dials), len(dials), extra
+
+        self.section("gist", "FRED (Federal Reserve, BLS, BEA, Chicago Fed, CBOE) and Yahoo Finance for the market dial", True, run)
 
     def ipos(self):
         def run():
@@ -453,6 +512,7 @@ class Build:
         self.rates()
         self.indicators()
         self.universe_and_prices()
+        self.gist()
         self.ipos()
         self.calendar()
         summary = {"built_at": _now(), "sources": self.health}

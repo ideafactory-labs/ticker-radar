@@ -15,7 +15,7 @@ lint: ## Workflow policy + Python syntax
 	node --check site/app.js
 
 unit: ## Parsers and a full build against recorded fixtures
-	python3 -m unittest tests/test_radar.py -v 2>&1 | tail -n 25
+	python3 -m unittest tests/test_radar.py tests/test_macro.py -v 2>&1 | tail -n 25
 
 fixtures-data: ## Build site/data from recorded fixtures (what tests and `make serve` use)
 	python3 -c "import shutil; shutil.rmtree('site/data', ignore_errors=True)"

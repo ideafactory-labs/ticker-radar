@@ -200,6 +200,14 @@ class FullBuild(unittest.TestCase):
             self.assertAlmostEqual(prices["NVDA"]["change_pct"], 6.8, delta=0.05)
             self.assertEqual(prices["SPY"]["source"], "yahoo")
             self.assertAlmostEqual(prices["NVDA"]["rel_3m"], prices["NVDA"]["chg_3m"] - prices["SPY"]["chg_3m"], places=2)
+            gist = json.loads((out / "gist.json").read_text())["data"]
+            self.assertEqual({d["key"]: d["status"] for d in gist["dials"]},
+                             {"valuation": "red", "recession": "green", "credit": "green", "inflation": "amber", "jobs": "green", "market": "green"})
+            self.assertEqual(gist["missing"], {})
+            self.assertTrue(gist["summary"].startswith("In the US, stocks are very expensive, inflation is above target"))
+            rec = next(d for d in gist["dials"] if d["key"] == "recession")["record"]
+            self.assertEqual((rec["hits"], rec["recessions"], rec["false_alarms"]), (3, 3, 1))
+            self.assertEqual(gist["recessions"][0], ["2001-03-01", "2001-12-01"])
             glance = json.loads((out / "glance.json").read_text())["data"]
             self.assertEqual([g["ticker"] for g in glance], ["SPY", "VEA", "AGG", "GLD"])  # those with fixtures, in display order
             self.assertEqual(glance[0]["label"], "US stocks")
@@ -226,6 +234,17 @@ class FullBuild(unittest.TestCase):
             self.assertFalse(health["bills"]["ok"])
             self.assertIn("error", health["bills"])
             self.assertTrue((pathlib.Path(d) / "health.json").exists())
+
+    def test_one_missing_series_drops_only_its_dial(self):
+        import shutil
+        with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as partial:
+            shutil.copytree(FX, partial, dirs_exist_ok=True)
+            (pathlib.Path(partial) / "fred_full__NFCI.csv").unlink()
+            build.Build(pathlib.Path(d), build.Source(pathlib.Path(partial)), TODAY, None).run()
+            gist = json.loads((pathlib.Path(d) / "gist.json").read_text())["data"]
+            self.assertEqual(list(gist["missing"]), ["credit"])
+            self.assertEqual(len(gist["dials"]), 5)
+            self.assertNotIn("credit", gist["summary"])
 
 
 if __name__ == "__main__":
