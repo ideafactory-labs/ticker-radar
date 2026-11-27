@@ -64,6 +64,46 @@
   const money = (v) => (v >= 1000 ? v.toLocaleString(undefined, { maximumFractionDigits: 2 }) : v.toFixed(2));
   function nameOf(tk) { const r = (D.searchIndex || []).find((x) => x[0] === tk); return r ? r[1] : ''; }
 
+  // ---------- signals ----------
+  const sign = (v, d = 1) => (v > 0 ? '+' : '') + v.toFixed(d) + '%';
+  const pctSpan = (v, d = 1) => (v == null ? '<span class="muted">n/a</span>' : `<span class="${v > 0 ? 'up' : v < 0 ? 'down' : 'muted'}">${sign(v, d)}</span>`);
+  // The one thing most worth knowing about this ticker right now, in priority order.
+  function headline(p) {
+    if (p.cross === 'death') return { cls: 'bad', text: 'Death cross', tip: 'The 50-day average fell below the 200-day average in the last two weeks. Often read as a weakening trend.' };
+    if (p.cross === 'golden') return { cls: 'good', text: 'Golden cross', tip: 'The 50-day average rose above the 200-day average in the last two weeks. Often read as a strengthening trend.' };
+    if (p.week_z != null && Math.abs(p.week_z) >= 2) return { cls: p.week_z > 0 ? 'good' : 'bad', text: `Unusual week (${sign(p.chg_1w)})`, tip: 'This week’s move is more than 2 standard deviations from this stock’s normal weekly move over the past year.' };
+    if (p.from_high != null && p.from_high <= -20) return { cls: 'bad', text: `${Math.abs(p.from_high).toFixed(0)}% below 52-week high`, tip: 'A fall of 20% or more from the high is the usual definition of a bear market for a stock.' };
+    if (p.from_high != null && p.from_high >= -2) return { cls: 'good', text: 'Near 52-week high', tip: 'Within 2% of its highest close in the past year.' };
+    if (p.from_low != null && p.from_low <= 3) return { cls: 'bad', text: 'Near 52-week low', tip: 'Within 3% of its lowest close in the past year.' };
+    if (p.vs_ma200 != null) return p.vs_ma200 >= 0
+      ? { cls: 'good', text: 'Uptrend', tip: 'Trading above its 200-day average, a common long-term trend line.' }
+      : { cls: 'bad', text: 'Downtrend', tip: 'Trading below its 200-day average, a common long-term trend line.' };
+    return null;
+  }
+  function signalsBlock(p) {
+    if (p.chg_1w == null && p.from_high == null) return '';
+    const h = headline(p);
+    const rows = [
+      ['3 months', pctSpan(p.chg_3m)], ['vs S&P 500, 3 months', p.rel_3m == null ? '<span class="muted">n/a</span>' : `<span class="${p.rel_3m >= 0 ? 'up' : 'down'}">${p.rel_3m > 0 ? '+' : ''}${p.rel_3m.toFixed(1)} pts</span>`],
+      ['From 52-week high', pctSpan(p.from_high)], ['From 52-week low', pctSpan(p.from_low)],
+      ['vs 50-day average', pctSpan(p.vs_ma50)], ['vs 200-day average', pctSpan(p.vs_ma200)],
+    ].map((r) => `<div class="row"><span>${r[0]}</span><span class="num">${r[1]}</span></div>`).join('');
+    return `<div class="periods num"><span>1w ${pctSpan(p.chg_1w)}</span><span>1m ${pctSpan(p.chg_1m)}</span><span>YTD ${pctSpan(p.chg_ytd)}</span></div>
+      ${h ? `<div class="signal ${h.cls}" title="${esc(h.tip)}">${esc(h.text)}</div>` : ''}
+      <details class="more"><summary>More signals</summary>${h ? `<p class="tip">${esc(h.tip)}</p>` : ''}${rows}</details>`;
+  }
+
+  function renderGlance() {
+    const doc = D.glance; const box = $('glance-panel');
+    if (!doc || !doc.data.length) { box.hidden = true; return; }
+    box.hidden = false;
+    $('src-glance').innerHTML = srcLabel(doc);
+    $('glance').innerHTML = `<thead><tr><th>Market</th><th>Day</th><th>1m</th><th>YTD</th><th>Trend</th></tr></thead><tbody>${doc.data.map((g) => {
+      const trend = g.vs_ma200 == null ? '<span class="muted">n/a</span>' : (g.vs_ma200 >= 0 ? '<span class="up" aria-label="uptrend">▲</span>' : '<span class="down" aria-label="downtrend">▼</span>');
+      return `<tr><td><strong>${esc(g.label)}</strong><small>${esc(g.note ? g.note + ' · ' : '')}${esc(g.ticker)}</small></td><td>${pctSpan(g.change_pct)}</td><td>${pctSpan(g.chg_1m)}</td><td>${pctSpan(g.chg_ytd)}</td><td style="font-family:var(--body)" title="Above or below its 200-day average">${trend}</td></tr>`;
+    }).join('')}</tbody>`;
+  }
+
   async function renderCards() {
     const el = $('cards');
     if (!state.watch.length) { el.innerHTML = '<div class="empty">Your watchlist is empty. Search above to add a stock or ETF.</div>'; return; }
@@ -86,6 +126,7 @@
           <div class="name" title="${esc(nm)}">${esc(nm)}</div>
           <div class="px">$${money(p.close)}</div>
           ${spark(p.spark)}
+          ${signalsBlock(p)}
           <div class="range"><div class="bar"><i style="left:calc(${Math.max(0, Math.min(100, pos)).toFixed(1)}% - 1px)"></i></div><div class="row"><span class="num">52w $${money(p.low_52w)}</span><span class="num">$${money(p.high_52w)}</span></div></div>
           <div class="row"><label class="thresh">Alert at <select id="al-${esc(safe(w.tk))}" data-al="${idx}" aria-label="Alert threshold for ${esc(w.tk)}">${opts}</select></label><span class="asof">${stale ? 'Stale · ' : ''}${esc(fmtDate(p.as_of))} · ${esc(p.source)}</span></div>`;
       }
@@ -153,6 +194,11 @@
       if (p && p.as_of > prevVisit.slice(0, 10) && Math.abs(p.change_pct) >= w.alert) {
         items.push({ hot: true, cls: p.change_pct > 0 ? 'up' : 'down', text: `${w.tk} ${p.change_pct > 0 ? '+' : ''}${p.change_pct.toFixed(1)}% on ${fmtDate(p.as_of)} (your alert: ±${w.alert}%)` });
       }
+    });
+    state.watch.forEach((w, i) => {
+      const p = docs[i]; if (!p || p.as_of <= prevVisit.slice(0, 10)) return;
+      if (p.cross) items.push({ hot: true, cls: p.cross === 'golden' ? 'up' : 'down', text: `${w.tk}: ${p.cross} cross (50-day vs 200-day average)` });
+      else if (p.week_z != null && Math.abs(p.week_z) >= 2.5 && Math.abs(p.change_pct) < w.alert) items.push({ hot: true, cls: p.week_z > 0 ? 'up' : 'down', text: `${w.tk}: unusual week, ${sign(p.chg_1w)}` });
     });
     for (const ipo of (D.ipos && D.ipos.data) || []) {
       if (!state.ipos.includes(ipoKey(ipo))) continue;
@@ -297,7 +343,7 @@
 
   // ---------- boot ----------
   async function boot() {
-    const names = ['bills', 'curve', 'auctions', 'indicators', 'ipos', 'filings', 'calendar', 'health'];
+    const names = ['bills', 'curve', 'auctions', 'indicators', 'ipos', 'filings', 'calendar', 'health', 'glance'];
     const docs = await Promise.all(names.map((n) => getJSON('data/' + n + '.json')));
     names.forEach((n, i) => { D[n] = docs[i]; });
     ensureIndex().then(renderCards);
@@ -312,7 +358,7 @@
       $('asof').textContent = 'No data yet';
       $('banner').hidden = false; $('banner').innerHTML = '<b>No data yet.</b><span>The data refresh has not run. Numbers will appear after the next scheduled refresh.</span>';
     }
-    renderCards(); renderRates(); renderIpos(); renderInds(); renderCal(); renderCode();
+    renderGlance(); renderCards(); renderRates(); renderIpos(); renderInds(); renderCal(); renderCode();
     await renderAlerts();
     state.lastVisit = iso(today); save();
     document.body.dataset.ready = '1';

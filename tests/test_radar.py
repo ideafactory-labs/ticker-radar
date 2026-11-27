@@ -116,6 +116,46 @@ class Prices(unittest.TestCase):
         self.assertEqual(s[-1][0], "2026-11-24")
 
 
+def _series(closes, end=dt.date(2026, 11, 24)):
+    """Daily closes on consecutive calendar days ending at `end` (enough for signal maths)."""
+    n = len(closes)
+    return [((end - dt.timedelta(days=n - 1 - i)).isoformat(), float(c)) for i, c in enumerate(closes)]
+
+
+class Signals(unittest.TestCase):
+    def test_period_changes_and_range(self):
+        closes = [100.0] * 239 + [100, 100, 100, 100, 100, 110, 110, 110, 110, 110, 121]  # 250 days
+        s = parse.price_signals(_series(closes))
+        self.assertEqual(s["chg_1w"], 10.0)            # 121 vs 110 five days earlier
+        self.assertEqual(s["chg_1m"], 21.0)            # 121 vs 100
+        self.assertEqual(s["chg_3m"], 21.0)
+        self.assertEqual(s["from_high"], 0.0)
+        self.assertEqual(s["from_low"], 21.0)
+        self.assertEqual(s["vs_ma50"], 19.31)          # 121 vs the 50-day average 101.42
+        self.assertGreater(s["week_z"], 3)             # a very unusual week for a flat stock
+
+    def test_ytd_uses_last_close_of_previous_year(self):
+        s = parse.price_signals([("2025-12-30", 90.0), ("2025-12-31", 100.0), ("2026-01-02", 104.0), ("2026-01-05", 110.0)])
+        self.assertEqual(s["chg_ytd"], 10.0)
+        only_this_year = parse.price_signals([("2026-01-02", 104.0), ("2026-01-05", 110.0)])
+        self.assertIsNone(only_this_year["chg_ytd"])
+
+    def test_short_history_gives_none_not_a_guess(self):
+        s = parse.price_signals(_series([10, 11, 12]))
+        for k in ("chg_1w", "chg_1m", "chg_3m", "vs_ma50", "vs_ma200", "cross", "week_z"):
+            self.assertIsNone(s[k], k)
+        self.assertEqual(s["from_high"], 0.0)
+
+    def test_golden_and_death_cross(self):
+        down_then_up = [200 - i * 0.5 for i in range(200)] + [100 + i * 4 for i in range(1, 41)]
+        crosses = [parse.price_signals(_series(down_then_up[:n]))["cross"] for n in range(210, 241)]
+        self.assertIn("golden", crosses)
+        self.assertNotIn("death", crosses)
+        up_then_down = [100 + i * 0.5 for i in range(200)] + [200 - i * 4 for i in range(1, 41)]
+        self.assertIn("death", [parse.price_signals(_series(up_then_down[:n]))["cross"] for n in range(210, 241)])
+        self.assertIsNone(parse.price_signals(_series([100.0 + i for i in range(250)]))["cross"])  # steady uptrend
+
+
 class Ipos(unittest.TestCase):
     def test_calendar_sections(self):
         rows = {r["ticker"]: r for r in parse.nasdaq_ipo_calendar(fx("nasdaq_ipos__2026-11.json"))}
@@ -159,6 +199,10 @@ class FullBuild(unittest.TestCase):
             self.assertNotIn("MSFT", prices)
             self.assertAlmostEqual(prices["NVDA"]["change_pct"], 6.8, delta=0.05)
             self.assertEqual(prices["SPY"]["source"], "yahoo")
+            self.assertAlmostEqual(prices["NVDA"]["rel_3m"], prices["NVDA"]["chg_3m"] - prices["SPY"]["chg_3m"], places=2)
+            glance = json.loads((out / "glance.json").read_text())["data"]
+            self.assertEqual([g["ticker"] for g in glance], ["SPY", "VEA", "AGG", "GLD"])  # those with fixtures, in display order
+            self.assertEqual(glance[0]["label"], "US stocks")
             search = json.loads((out / "search.json").read_text())["data"]
             self.assertIn(["BAC", "Bank of America Corporation", "NYSE"], search)
             # Every section file says where it came from and when.

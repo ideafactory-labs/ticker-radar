@@ -297,6 +297,65 @@ def yahoo_spark(json_text: str) -> dict[str, list[tuple[str, float]]]:
     return out
 
 
+def _pct(a: float, b: float) -> float:
+    return round((a / b - 1) * 100, 2)
+
+
+def _sma(closes: list[float], n: int, end: int | None = None) -> float | None:
+    """Simple moving average of the n closes ending at index `end` (exclusive); None if too short."""
+    end = len(closes) if end is None else end
+    if end < n or n <= 0:
+        return None
+    return sum(closes[end - n:end]) / n
+
+
+def price_signals(series: list[tuple[str, float]]) -> dict:
+    """Signals from up to a year of daily closes. Every field is None when history is too short,
+    never a guess. Definitions (trading days): 1w = 5, 1m = 21, 3m = 63.
+
+    - chg_1w / chg_1m / chg_3m / chg_ytd: % change over the period.
+    - from_high / from_low: % distance of the last close from the 52-week high / low.
+    - vs_ma50 / vs_ma200: % distance from the 50- / 200-day simple moving average.
+    - cross: "golden" if the 50-day average moved above the 200-day within the last 10
+      trading days, "death" if below; else None.
+    - week_z: this week's 5-day return measured in standard deviations of this stock's own
+      5-day returns over the year (how unusual the week is for this stock).
+    """
+    closes = [c for _, c in series]
+    n = len(closes)
+    last = closes[-1]
+    out: dict = {k: None for k in ("chg_1w", "chg_1m", "chg_3m", "chg_ytd", "vs_ma50", "vs_ma200", "cross", "week_z")}
+    for key, d in (("chg_1w", 5), ("chg_1m", 21), ("chg_3m", 63)):
+        if n > d:
+            out[key] = _pct(last, closes[-1 - d])
+    year = series[-1][0][:4]
+    prior = [c for d, c in series if d[:4] < year]
+    if prior:  # last close of the previous year is the YTD base
+        out["chg_ytd"] = _pct(last, prior[-1])
+    yr = closes[-252:]
+    out["from_high"] = _pct(last, max(yr))
+    out["from_low"] = _pct(last, min(yr))
+    ma50, ma200 = _sma(closes, 50), _sma(closes, 200)
+    if ma50:
+        out["vs_ma50"] = _pct(last, ma50)
+    if ma200:
+        out["vs_ma200"] = _pct(last, ma200)
+    if n >= 210:
+        now = _sma(closes, 50) - _sma(closes, 200)
+        then = _sma(closes, 50, n - 10) - _sma(closes, 200, n - 10)
+        if then <= 0 < now:
+            out["cross"] = "golden"
+        elif then >= 0 > now:
+            out["cross"] = "death"
+    if n >= 65:
+        rets = [closes[i] / closes[i - 5] - 1 for i in range(5, n)]
+        mean = sum(rets) / len(rets)
+        sd = (sum((r - mean) ** 2 for r in rets) / (len(rets) - 1)) ** 0.5
+        if sd > 0:
+            out["week_z"] = round((rets[-1] - mean) / sd, 2)
+    return out
+
+
 def price_summary(series: list[tuple[str, float]]) -> dict:
     """[(date, close)] -> what a watchlist card needs."""
     last_year = series[-252:]
@@ -309,6 +368,7 @@ def price_summary(series: list[tuple[str, float]]) -> dict:
         "high_52w": round(max(closes), 4),
         "low_52w": round(min(closes), 4),
         "spark": [round(c, 4) for _, c in series[-30:]],
+        **price_signals(series),
     }
 
 

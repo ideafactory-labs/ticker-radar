@@ -80,6 +80,23 @@ await check('search by company name adds a card; it survives a reload and ✕ re
   await context.close();
 });
 
+await check('cards show period changes, one headline signal and more behind a tap; glance strip renders', async () => {
+  const { context, page, errors } = await open();
+  const card = page.locator('.card[data-tk="NVDA"]');
+  await card.locator('.periods').waitFor();
+  assert.match(await card.locator('.periods').textContent(), /1w [+-][\d.]+%.*1m [+-][\d.]+%.*YTD/);
+  assert.equal(await card.locator('.signal').count(), 1, 'exactly one headline signal');
+  if (!LIVE) assert.match(await card.locator('.signal').textContent(), /Unusual week \(\+7\.9%\)/);
+  assert.equal(await card.locator('details.more .row').first().isVisible(), false, 'details start closed');
+  await card.locator('details.more summary').click();
+  assert.match(await card.locator('details.more').textContent(), /vs S&P 500, 3 months.*From 52-week high.*vs 200-day average/s);
+  assert.ok(await page.locator('#glance tbody tr').count() >= (LIVE ? 5 : 4), 'glance rows');
+  assert.match(await page.locator('#glance').textContent(), /US stocks.*Gold/s);
+  await card.screenshot({ path: `${OUT}/3-card-signals.png` });
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
 await check('a ticker without price data says so instead of showing a number', async () => {
   const { context, page } = await open();
   await page.fill('#q', 'microsoft');
