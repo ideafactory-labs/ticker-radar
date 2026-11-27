@@ -3,24 +3,36 @@
   "cusip": "912797AA1",
   "securityType": "Bill",
   "securityTerm": "13-Week",
-  "auctionDate": "2026-11-30T00:00:00",
+  "announcementDate": "2026-11-25T00:00:00",
+  "competitiveAuctionCloseDate": "2026-11-30T00:00:00",
   "issueDate": "2026-12-03T00:00:00",
-  "highInvestmentRate": ""
+  "highRate": "",
+  "investmentRate": "",
+  "bidToCoverRatio": "",
+  "cashManagementBill": "No"
  },
  {
   "cusip": "912797AA2",
   "securityType": "Bill",
   "securityTerm": "26-Week",
-  "auctionDate": "2026-11-30T00:00:00",
+  "announcementDate": "2026-11-25T00:00:00",
+  "competitiveAuctionCloseDate": "2026-11-30T00:00:00",
   "issueDate": "2026-12-03T00:00:00",
-  "highInvestmentRate": ""
+  "highRate": "",
+  "investmentRate": "",
+  "bidToCoverRatio": "",
+  "cashManagementBill": "No"
  },
  {
   "cusip": "912797AA3",
   "securityType": "Bill",
   "securityTerm": "52-Week",
-  "auctionDate": "2026-12-01T00:00:00",
+  "announcementDate": "2026-11-25T00:00:00",
+  "competitiveAuctionCloseDate": "2026-12-01T00:00:00",
   "issueDate": "2026-12-03T00:00:00",
-  "highInvestmentRate": ""
+  "highRate": "",
+  "investmentRate": "",
+  "bidToCoverRatio": "",
+  "cashManagementBill": "No"
  }
 ]

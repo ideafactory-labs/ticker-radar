@@ -109,17 +109,23 @@ def treasury_auctions(json_text: str, *, today: Date) -> list[dict]:
         data = data.get("securityList") or data.get("data") or []
     out = []
     for s in data:
-        term = (s.get("securityTerm") or s.get("term") or s.get("securityTermWeekYear") or "").strip()
-        ad = s.get("auctionDate") or s.get("auction_date")
+        term = (s.get("securityTerm") or s.get("originalSecurityTerm") or "").strip()
+        # TreasuryDirect has no "auctionDate": the auction is the day competitive bidding closes.
+        ad = s.get("competitiveAuctionCloseDate") or s.get("auctionDate")
         if not term or not ad:
             continue
-        rate = _num(s.get("highInvestmentRate")) or _num(s.get("highYield")) or _num(s.get("highDiscountRate"))
+        high = _num(s.get("highRate"))                      # bills: high discount rate
+        invest = _num(s.get("investmentRate")) or _num(s.get("highInvestmentRate"))  # coupon-equivalent
+        done = high is not None or invest is not None
         out.append({
-            "security": f"{term} {s.get('securityType', 'Bill')}".strip(),
+            "security": f"{term} {s.get('securityType') or 'Bill'}".strip(),
+            "cmb": (s.get("cashManagementBill") or "").strip().lower() == "yes",
             "auction_date": _date(ad).isoformat(),
             "issue_date": _date(s["issueDate"]).isoformat() if s.get("issueDate") else None,
-            "high_rate": rate,
-            "status": "Result" if rate is not None else ("Upcoming" if _date(ad) >= today else "Pending"),
+            "high_rate": high,
+            "investment_rate": invest,
+            "bid_to_cover": _num(s.get("bidToCoverRatio")),
+            "status": "Result" if done else ("Upcoming" if _date(ad) >= today else "Pending"),
         })
     out.sort(key=lambda a: a["auction_date"])
     return out

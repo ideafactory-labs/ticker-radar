@@ -35,11 +35,18 @@ class Treasury(unittest.TestCase):
             parse.treasury_yield_curve('Date,"1 Mo"\n11/24/2026,4.3\n')
 
     def test_auctions_upcoming_and_results(self):
+        # Field names as TreasuryDirect serves them (seen in the live probe): the auction day is
+        # competitiveAuctionCloseDate, and the result rate is highRate.
         up = parse.treasury_auctions(fx("auctions_announced.json"), today=TODAY)
         self.assertEqual([a["status"] for a in up], ["Upcoming"] * 3)
+        self.assertEqual(up[0]["auction_date"], "2026-11-30")
         done = parse.treasury_auctions(fx("auctions_results.json"), today=TODAY)
-        self.assertEqual(done[-1]["high_rate"], 4.31)
-        self.assertEqual(done[-1]["security"], "4-Week Bill")
+        last = done[-1]
+        self.assertEqual((last["security"], last["auction_date"], last["status"]), ("4-Week Bill", "2026-11-25", "Result"))
+        self.assertEqual((last["high_rate"], last["investment_rate"], last["bid_to_cover"]), (4.115, 4.197, 2.64))
+
+    def test_auction_without_a_date_is_skipped_not_guessed(self):
+        self.assertEqual(parse.treasury_auctions('[{"securityTerm": "4-Week", "announcementDate": "2026-11-24T00:00:00"}]', today=TODAY), [])
 
 
 class Fred(unittest.TestCase):
