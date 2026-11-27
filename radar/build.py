@@ -77,6 +77,17 @@ ETFS = {
     "SCHD": "Schwab US Dividend Equity ETF", "VNQ": "Vanguard Real Estate ETF", "IBIT": "iShares Bitcoin Trust ETF",
 }
 
+# "Markets at a glance": one widely held ETF per asset class, as a stand-in for the market.
+GLANCE = [
+    ("SPY", "US stocks", "S&P 500"),
+    ("QQQ", "US tech", "Nasdaq-100"),
+    ("VEA", "International", "developed markets"),
+    ("VWO", "Emerging markets", ""),
+    ("AGG", "US bonds", "broad market"),
+    ("TLT", "Long Treasuries", "20+ years"),
+    ("GLD", "Gold", ""),
+]
+
 UNIVERSE_STOCKS = int(os.environ.get("UNIVERSE_STOCKS", "400"))
 LISTED = {"nasdaq", "nyse", "nyse american", "nyse arca", "cboe", "bats"}
 
@@ -324,6 +335,9 @@ class Build:
             if not bundle:
                 raise parse.ParseError(f"no prices from Yahoo ({notes.get('batch_error', 'chart requests failed')})")
             as_of = max(v["as_of"] for v in bundle.values())
+            spy = bundle.get("SPY", {}).get("chg_3m")
+            for v in bundle.values():  # 3-month return minus the S&P 500's, in percentage points
+                v["rel_3m"] = round(v["chg_3m"] - spy, 2) if spy is not None and v.get("chg_3m") is not None else None
             missing = sorted(set(core) - set(bundle))
             detail = {**notes, "core_missing_count": len(missing), "core_missing": missing[:40], "wide_universe": len(wide)}
             # One file for every priced ticker, so the page never asks the server for the
@@ -331,6 +345,21 @@ class Build:
             return dict(sorted(bundle.items())), as_of, len(bundle), detail
 
         self.section("prices", "Yahoo Finance daily closes", False, prices)
+
+        def glance():
+            doc = json.loads((self.out / "prices.json").read_text())
+            rows = []
+            for t, label, note in GLANCE:
+                v = doc["data"].get(t)
+                if v:
+                    rows.append({"ticker": t, "label": label, "note": note,
+                                 **{k: v.get(k) for k in ("close", "change_pct", "chg_1w", "chg_1m", "chg_ytd", "from_high", "vs_ma200")}})
+            if not rows:
+                raise parse.ParseError("no benchmark ETFs priced")
+            return rows, doc["as_of"], len(rows)
+
+        if (self.out / "prices.json").exists() and self.health.get("prices", {}).get("ok"):
+            self.section("glance", "Yahoo Finance daily closes (one ETF per asset class)", False, glance)
 
     def ipos(self):
         def run():
