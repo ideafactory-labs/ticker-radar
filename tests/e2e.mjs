@@ -111,11 +111,45 @@ await check('the gist: one sentence, six dials, and a tap opens the numbers, his
   assert.match(text, /yield curve/i);
   assert.match(text, /Sahm rule/);
   assert.match(text, /How this is judged/);
+  assert.match(text, /What this is\./);
+  assert.match(text, /Why it matters\./);
+  assert.match(text, /Direction/);
+  // every dial tile shows which way it moved and that it can be opened
+  for (const d of await page.locator('#dials .dial').all()) assert.match(await d.textContent(), /[▲▼■].*(Explain|Close)/s);
+  // a "?" explains a row in plain words, and closes again
+  const sahm = det.locator('.part', { hasText: 'Sahm rule' });
+  assert.equal(await sahm.locator('.helpbox').isVisible(), false);
+  await sahm.locator('button.q').click();
+  assert.match(await sahm.locator('.helpbox').textContent(), /Claudia Sahm/);
+  await sahm.locator('button.q').click();
+  assert.equal(await sahm.locator('.helpbox').isVisible(), false);
   if (!LIVE) assert.match(text, /inversions came before 3 of 3 recessions, with 1 false alarm/);
   assert.ok(await det.locator('.hist svg rect').count() >= 1, 'recession shading on the history chart');
   await page.locator('#gist-panel').screenshot({ path: `${OUT}/4-gist.png` });
   await page.locator('.dial[data-dial="recession"]').click();
   assert.equal(await det.isVisible(), false, 'second tap closes it');
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+await check('sections explain themselves; rates are summarised with the tables behind a tap; glance shows prices', async () => {
+  const { context, page, errors } = await open();
+  await page.locator('#rates-summary .stat').first().waitFor();
+  const stats = await page.locator('#rates-summary').textContent();
+  assert.match(stats, /3-month T-bill\s*[\d.]+%/);
+  assert.match(stats, /10-year Treasury\s*[\d.]+%/);
+  assert.match(stats, /Yield curve\s*(Normal|Inverted)/);
+  assert.equal(await page.locator('#bills').isVisible(), false, 'full table starts collapsed');
+  await page.locator('#rates-more summary').click();
+  assert.equal(await page.locator('#bills').isVisible(), true);
+  for (const id of ['help-gist', 'help-glance', 'help-watch', 'help-rates', 'help-cal']) {
+    assert.equal(await page.locator('#' + id).isVisible(), false, id + ' starts hidden');
+    await page.locator(`button.q[data-q="${id}"]`).click();
+    assert.ok((await page.locator('#' + id).textContent()).length > 80, id + ' has an explanation');
+  }
+  assert.match(await page.locator('#help-glance').textContent(), /VEA holds large companies in developed countries outside the US/);
+  assert.match(await page.locator('#glance thead').textContent(), /Fund price/);
+  assert.match(await page.locator('#glance tbody tr').first().textContent(), /\$[\d,.]+/);
   assert.deepEqual(errors, []);
   await context.close();
 });

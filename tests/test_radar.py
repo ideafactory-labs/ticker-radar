@@ -204,6 +204,13 @@ class FullBuild(unittest.TestCase):
             self.assertEqual({d["key"]: d["status"] for d in gist["dials"]},
                              {"valuation": "red", "recession": "green", "credit": "green", "inflation": "amber", "jobs": "green", "market": "green"})
             self.assertEqual(gist["missing"], {})
+            for d in gist["dials"]:   # every dial and every row on the page can be explained
+                self.assertTrue(d["help"]["what"] and d["help"]["why"], d["key"])
+                self.assertIsNotNone(d["trend"], d["key"])
+                for part in d["parts"]:
+                    self.assertTrue(part["help"], f"{d['key']}: no help for {part['label']!r}")
+            infl = next(d for d in gist["dials"] if d["key"] == "inflation")
+            self.assertEqual((infl["value"], infl["sub"]), ("2.9%", "core 3.1%"))
             self.assertTrue(gist["summary"].startswith("In the US, stocks are very expensive, inflation is above target"))
             rec = next(d for d in gist["dials"] if d["key"] == "recession")["record"]
             self.assertEqual((rec["hits"], rec["recessions"], rec["false_alarms"]), (3, 3, 1))
