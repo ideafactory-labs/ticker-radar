@@ -24,10 +24,12 @@ RULES = {
     "recession": "Red: the Sahm rule has triggered (0.50 or more) or the smoothed recession probability is 50% or more. "
                  "Amber: the 10-year minus 3-month Treasury yield curve is inverted, or was within the last 18 months, "
                  "or the Sahm rule reads 0.30 or more. Green otherwise.",
-    "credit": "Chicago Fed National Financial Conditions Index (0 = average conditions; above 0 = tighter than average). "
-              "Red: above +0.5 or the VIX above 35. Amber: above 0 or the VIX above 25. Green otherwise.",
-    "inflation": "Core CPI, change from a year earlier, against the Fed’s 2% goal. Green: 2.5% or less. "
-                 "Amber: up to 3.5%. Red: above 3.5%.",
+    "credit": "Two measures; the worse one sets the dial. Chicago Fed National Financial Conditions Index (0 = average; "
+              "above 0 = tighter than average): amber above 0, red above +0.5. Stock volatility (VIX): amber above 25, "
+              "red above 35.",
+    "inflation": "Core CPI (excludes food and energy), change from a year earlier, against the Fed’s 2% goal. "
+                 "Green: 2.5% or less. Amber: up to 3.5%. Red: above 3.5%. Headline CPI is shown alongside but does not "
+                 "set the dial, because food and energy prices swing widely.",
     "jobs": "Sahm rule reading: the 3-month average unemployment rate minus its low of the previous 12 months. "
             "Green: under 0.30. Amber: 0.30 to 0.49. Red: 0.50 or more.",
     "market": "S&P 500 fund (SPY) against its 200-day average, and the share of all priced US stocks above their own "
@@ -208,14 +210,29 @@ def recession_dial(t10y3m: Series, usrec: Series, sahm: Series, recprob: Series 
 def credit_dial(nfci: Series, vix: Series, hy_spread: Series | None = None) -> dict:
     d, v = nfci[-1]
     vx = vix[-1][1]
-    status = RED if v > 0.5 or vx > 35 else AMBER if v > 0 or vx > 25 else GREEN
-    word = {RED: "stressed", AMBER: "tighter than average", GREEN: "calm"}[status]
+    by_nfci = RED if v > 0.5 else AMBER if v > 0 else GREEN
+    by_vix = RED if vx > 35 else AMBER if vx > 25 else GREEN
+    order = {GREEN: 0, AMBER: 1, RED: 2}
+    status = max(by_nfci, by_vix, key=order.get)
+    cond = "tighter than average" if v > 0 else "looser than average"
+    # Say what is actually driving the dial: tight credit, jumpy stocks, or both.
+    if status == GREEN:
+        value, phrase = "Calm", None
+        head = f"Financial conditions are calm: {cond} (index {v:+.2f}) and stock volatility is normal (VIX {vx:.0f})."
+    elif order[by_nfci] >= order[by_vix]:
+        value = "Stressed" if status == RED else "Tight"
+        phrase = None
+        head = f"Financial conditions are {'much ' if status == RED else ''}{cond} (index {v:+.2f}; VIX {vx:.0f})."
+    else:
+        value = "Turbulent" if status == RED else "Jittery"
+        phrase = "markets are turbulent" if status == RED else "markets are jittery"
+        head = (f"Stock volatility is {'very high' if status == RED else 'elevated'} (VIX {vx:.0f}), "
+                f"though financial conditions are {cond} (index {v:+.2f}).")
     parts = [{"label": "Financial conditions index (NFCI)", "value": f"{v:+.2f}", "note": "0 = average; above 0 = tighter"},
              {"label": "Stock volatility (VIX)", "value": f"{vx:.1f}", "note": f"higher than {percentile([x for _, x in vix], vx):.0f}% of history"}]
     if hy_spread:
         parts.append({"label": "High-yield bond spread", "value": f"{hy_spread[-1][1]:.2f} pts", "note": "extra yield over Treasuries"})
-    return _dial("credit", "Credit stress", status, word.capitalize() if status != AMBER else "Tight",
-                 f"Financial conditions are {word} (index {v:+.2f}; VIX {vx:.0f}).", parts, d, downsample(nfci))
+    return _dial("credit", "Credit stress", status, value, head, parts, d, downsample(nfci), {"phrase": phrase} if phrase else None)
 
 
 def inflation_dial(cpi: Series, core: Series, breakeven: Series | None = None) -> dict:
@@ -231,7 +248,10 @@ def inflation_dial(cpi: Series, core: Series, breakeven: Series | None = None) -
              {"label": "Core CPI a year earlier", "value": f"{c[-13][1]:.1f}%" if len(c) > 13 else "n/a", "note": ""}]
     if breakeven:
         parts.append({"label": "Market-implied 5-year inflation", "value": f"{breakeven[-1][1]:.2f}%", "note": "from Treasury yields"})
-    return _dial("inflation", "Inflation", status, f"{v:.1f}%", f"Core inflation is {v:.1f}%, {word}.", parts, c[-1][0], downsample(c))
+    gap = h[-1][1] - v
+    also = (f" Headline inflation, which includes food and energy, is {'higher' if gap > 0 else 'lower'} at {h[-1][1]:.1f}%."
+            if abs(gap) >= 0.5 else "")
+    return _dial("inflation", "Inflation", status, f"{v:.1f}%", f"Core inflation is {v:.1f}%, {word}.{also}", parts, c[-1][0], downsample(c))
 
 
 def jobs_dial(unrate: Series, sahm: Series, payrolls: Series, claims: Series | None = None) -> dict:
@@ -293,7 +313,7 @@ PHRASES = {
 def summary(dials: list[dict]) -> str:
     """One sentence built only from the dial states, most concerning first."""
     order = {RED: 0, AMBER: 1, GREEN: 2}
-    parts = [PHRASES[d["key"]][d["status"]] for d in sorted(dials, key=lambda d: order[d["status"]])]
+    parts = [d.get("phrase") or PHRASES[d["key"]][d["status"]] for d in sorted(dials, key=lambda d: order[d["status"]])]
     if not parts:
         return ""
     s = ", ".join(parts[:-1]) + (" and " if len(parts) > 1 else "") + parts[-1]

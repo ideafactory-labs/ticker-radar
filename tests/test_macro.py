@@ -126,6 +126,17 @@ class Dials(unittest.TestCase):
         self.assertEqual(macro.credit_dial([("2026-11-20", -0.45)], vix)["status"], "green")
         self.assertEqual(macro.credit_dial([("2026-11-20", 0.1)], vix)["status"], "amber")
         self.assertEqual(macro.credit_dial([("2026-11-20", -0.2)], daily("2020-01-01", [15] * 99 + [40]))["status"], "red")
+        # The live case that exposed a wording bug: loose credit (index below 0) but a jumpy VIX.
+        j = macro.credit_dial([("2026-11-20", -0.44)], daily("2020-01-01", [15] * 99 + [26.4]))
+        self.assertEqual((j["status"], j["value"], j["phrase"]), ("amber", "Jittery", "markets are jittery"))
+        self.assertEqual(j["headline"], "Stock volatility is elevated (VIX 26), though financial conditions are looser than average (index -0.44).")
+        tight = macro.credit_dial([("2026-11-20", 0.3)], vix)
+        self.assertEqual((tight["value"], tight["headline"]), ("Tight", "Financial conditions are tighter than average (index +0.30; VIX 15)."))
+        self.assertNotIn("phrase", tight)
+        self.assertEqual(macro.summary([j]), "In the US, markets are jittery.")
+        # Headline CPI far from core is said out loud.
+        hot = macro.inflation_dial(months(2020, 60, lambda i: 100 * 1.041 ** (i / 12)), months(2020, 60, lambda i: 100 * 1.029 ** (i / 12)))
+        self.assertEqual(hot["headline"], "Core inflation is 2.9%, above the Fed’s 2% goal. Headline inflation, which includes food and energy, is higher at 4.1%.")
         cpi = months(2020, 60, lambda i: 100 * 1.03 ** (i / 12))
         d = macro.inflation_dial(cpi, cpi)
         self.assertEqual((d["status"], d["value"]), ("amber", "3.0%"))
