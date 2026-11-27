@@ -97,6 +97,29 @@ await check('cards show period changes, one headline signal and more behind a ta
   await context.close();
 });
 
+await check('the gist: one sentence, six dials, and a tap opens the numbers, history and rule', async () => {
+  const { context, page, errors } = await open();
+  await page.locator('#dials .dial').first().waitFor();
+  assert.match(await page.locator('#gist-summary').textContent(), /^In the US, .+\.$/);
+  assert.equal(await page.locator('#dials .dial').count(), 6);
+  for (const d of await page.locator('#dials .dial').all()) assert.match(await d.textContent(), /OK|Watch|Alert/);
+  assert.equal(await page.locator('#dial-detail').isVisible(), false, 'detail starts closed');
+  await page.locator('.dial[data-dial="recession"]').click();
+  const det = page.locator('#dial-detail');
+  await det.waitFor();
+  const text = await det.textContent();
+  assert.match(text, /yield curve/i);
+  assert.match(text, /Sahm rule/);
+  assert.match(text, /How this is judged/);
+  if (!LIVE) assert.match(text, /inversions came before 3 of 3 recessions, with 1 false alarm/);
+  assert.ok(await det.locator('.hist svg rect').count() >= 1, 'recession shading on the history chart');
+  await page.locator('#gist-panel').screenshot({ path: `${OUT}/4-gist.png` });
+  await page.locator('.dial[data-dial="recession"]').click();
+  assert.equal(await det.isVisible(), false, 'second tap closes it');
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
 await check('a ticker without price data says so instead of showing a number', async () => {
   const { context, page } = await open();
   await page.fill('#q', 'microsoft');

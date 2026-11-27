@@ -64,6 +64,56 @@
   const money = (v) => (v >= 1000 ? v.toLocaleString(undefined, { maximumFractionDigits: 2 }) : v.toFixed(2));
   function nameOf(tk) { const r = (D.searchIndex || []).find((x) => x[0] === tk); return r ? r[1] : ''; }
 
+  // ---------- the gist ----------
+  const STATUS_WORD = { green: 'OK', amber: 'Watch', red: 'Alert' };
+  const HISTORY_LABEL = { valuation: 'Stock market value as % of GDP', recession: '10-year minus 3-month Treasury yield (points)', credit: 'Financial conditions index (0 = average)', inflation: 'Core CPI, % change from a year earlier', jobs: 'Unemployment rate (%)' };
+  let openDial = null;
+  function historyChart(dial, recessions) {
+    const h = dial.history; if (!h || h.length < 3) return '';
+    const W = 600, H = 220, L = 52, R = 10, T = 12, B = 30;
+    const t = (d) => parseDay(d).getTime();
+    const x0 = t(h[0][0]), x1 = t(h[h.length - 1][0]);
+    const vals = h.map((p) => p[1]); let lo = Math.min(...vals), hi = Math.max(...vals);
+    if (dial.key === 'recession' || dial.key === 'credit') { lo = Math.min(lo, 0); hi = Math.max(hi, 0); }
+    const pad = (hi - lo) * 0.08 || 1; lo -= pad; hi += pad;
+    const X = (d) => L + ((t(d) - x0) / (x1 - x0 || 1)) * (W - L - R), Y = (v) => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
+    let g = '';
+    for (const [a, b] of recessions || []) { if (b < h[0][0] || a > h[h.length - 1][0]) continue; const xa = X(a < h[0][0] ? h[0][0] : a), xb = X(b); g += `<rect x="${xa.toFixed(1)}" y="${T}" width="${Math.max(1.5, xb - xa).toFixed(1)}" height="${H - T - B}" fill="var(--muted)" opacity="0.18"/>`; }
+    for (let i = 0; i <= 3; i++) { const v = lo + ((hi - lo) * i) / 3; g += `<line x1="${L}" x2="${W - R}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--line)"/><text x="${L - 7}" y="${Y(v) + 5}" text-anchor="end" font-size="15" fill="var(--muted)" font-family="var(--mono)">${Math.abs(v) >= 100 ? v.toFixed(0) : v.toFixed(1)}</text>`; }
+    if (lo < 0 && hi > 0) g += `<line x1="${L}" x2="${W - R}" y1="${Y(0)}" y2="${Y(0)}" stroke="var(--ink)" stroke-width="1" stroke-dasharray="3 3"/>`;
+    const y0 = +h[0][0].slice(0, 4), y1 = +h[h.length - 1][0].slice(0, 4); const step = Math.max(1, Math.ceil((y1 - y0) / 6 / 5) * 5);
+    for (let y = Math.ceil(y0 / step) * step; y <= y1; y += step) { const d = `${y}-01-01`; if (d >= h[0][0]) g += `<text x="${X(d)}" y="${H - 8}" text-anchor="middle" font-size="15" fill="var(--muted)" font-family="var(--mono)">${y}</text>`; }
+    g += `<path d="${h.map((p, i) => (i ? 'L' : 'M') + X(p[0]).toFixed(1) + ' ' + Y(p[1]).toFixed(1)).join(' ')}" fill="none" stroke="var(--accent)" stroke-width="1.8"/>`;
+    const last = h[h.length - 1]; g += `<circle cx="${X(last[0])}" cy="${Y(last[1])}" r="3" fill="var(--accent)"/>`;
+    return `<figure class="hist"><figcaption>${esc(HISTORY_LABEL[dial.key] || '')}${recessions && recessions.length ? ' · shaded: US recessions' : ''}</figcaption><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(HISTORY_LABEL[dial.key] || dial.name)} over time">${g}</svg></figure>`;
+  }
+  function renderGist() {
+    const doc = D.gist; const box = $('gist-panel');
+    if (!doc || !doc.data.dials.length) { box.hidden = true; return; }
+    box.hidden = false;
+    const g = doc.data;
+    $('gist-summary').textContent = g.summary;
+    $('src-gist').innerHTML = `as of ${esc(fmtDate(doc.as_of))}`;
+    $('dials').innerHTML = g.dials.map((d) => `<button type="button" class="dial ${esc(d.status)}${openDial === d.key ? ' open' : ''}" data-dial="${esc(d.key)}" aria-expanded="${openDial === d.key}" aria-controls="dial-detail">
+        <span class="dial-name">${esc(d.name)}</span><span class="dial-value">${esc(d.value)}</span>
+        <span class="dial-status"><i></i>${STATUS_WORD[d.status]}</span></button>`).join('');
+    const det = $('dial-detail'); const d = g.dials.find((x) => x.key === openDial);
+    if (!d) { det.hidden = true; det.textContent = ''; }
+    else {
+      det.hidden = false;
+      det.innerHTML = `<h3>${esc(d.name)} <span class="dial-status ${esc(d.status)}"><i></i>${STATUS_WORD[d.status]}</span></h3>
+        <p class="lead">${esc(d.headline)}</p>
+        <div class="parts">${d.parts.map((p) => `<div class="part"><span class="part-label">${esc(p.label)}</span><span class="part-value num">${esc(p.value)}</span>${p.note ? `<span class="part-note">${esc(p.note)}</span>` : ''}</div>`).join('')}</div>
+        ${historyChart(d, g.recessions)}
+        <p class="rule"><strong>How this is judged.</strong> ${esc(d.rule)}</p>
+        <p class="src">Data through ${esc(fmtDate(d.as_of))}. A dial describes where things stand; it is not a forecast or advice.</p>`;
+    }
+    const miss = Object.keys(g.missing || {});
+    $('gist-missing').hidden = !miss.length;
+    if (miss.length) $('gist-missing').textContent = 'Not available on this refresh: ' + miss.join(', ') + '.';
+  }
+  $('dials').addEventListener('click', (e) => { const b = e.target.closest('[data-dial]'); if (!b) return; openDial = openDial === b.dataset.dial ? null : b.dataset.dial; renderGist(); if (openDial) $('dial-detail').scrollIntoView({ block: 'nearest', behavior: 'smooth' }); });
+
   // ---------- signals ----------
   const sign = (v, d = 1) => (v > 0 ? '+' : '') + v.toFixed(d) + '%';
   const pctSpan = (v, d = 1) => (v == null ? '<span class="muted">n/a</span>' : `<span class="${v > 0 ? 'up' : v < 0 ? 'down' : 'muted'}">${sign(v, d)}</span>`);
@@ -343,7 +393,7 @@
 
   // ---------- boot ----------
   async function boot() {
-    const names = ['bills', 'curve', 'auctions', 'indicators', 'ipos', 'filings', 'calendar', 'health', 'glance'];
+    const names = ['bills', 'curve', 'auctions', 'indicators', 'ipos', 'filings', 'calendar', 'health', 'glance', 'gist'];
     const docs = await Promise.all(names.map((n) => getJSON('data/' + n + '.json')));
     names.forEach((n, i) => { D[n] = docs[i]; });
     ensureIndex().then(renderCards);
@@ -358,7 +408,7 @@
       $('asof').textContent = 'No data yet';
       $('banner').hidden = false; $('banner').innerHTML = '<b>No data yet.</b><span>The data refresh has not run. Numbers will appear after the next scheduled refresh.</span>';
     }
-    renderGlance(); renderCards(); renderRates(); renderIpos(); renderInds(); renderCal(); renderCode();
+    renderGist(); renderGlance(); renderCards(); renderRates(); renderIpos(); renderInds(); renderCal(); renderCode();
     await renderAlerts();
     state.lastVisit = iso(today); save();
     document.body.dataset.ready = '1';
