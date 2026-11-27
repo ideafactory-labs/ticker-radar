@@ -75,9 +75,21 @@ jobs:
           SEC_USER_AGENT: ${{ vars.SEC_USER_AGENT }}
         run: |
           python3 -m radar.build --out build/probe | tee build-probe.txt
+          python3 - <<'PY' | tee gist-probe.txt
+          import json, pathlib
+          p = pathlib.Path("build/probe/gist.json")
+          if p.exists():
+              g = json.loads(p.read_text())["data"]
+              print("GIST:", g["summary"])
+              for d in g["dials"]:
+                  print(f"  [{d['status']:5}] {d['name']}: {d['value']} | {d['headline']} (as of {d['as_of']})")
+                  for part in d["parts"]:
+                      print(f"           {part['label']}: {part['value']}  {part['note']}")
+          PY
           {
             echo '### Live source probe'
             echo '```'
             grep -E '^(ok|FAIL)' build-probe.txt | cut -c1-300
+            cat gist-probe.txt
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
