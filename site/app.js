@@ -66,7 +66,7 @@
 
   // ---------- the gist ----------
   const STATUS_WORD = { green: 'OK', amber: 'Watch', red: 'Alert' };
-  const HISTORY_LABEL = { valuation: 'Stock market value as % of GDP', recession: '10-year minus 3-month Treasury yield (points)', credit: 'Financial conditions index (0 = average)', inflation: 'Core CPI, % change from a year earlier', jobs: 'Unemployment rate (%)' };
+  const HISTORY_LABEL = { valuation: 'Stock market value as % of GDP', recession: '10-year minus 3-month Treasury yield (points)', credit: 'Financial conditions index (0 = average)', inflation: 'CPI inflation, % change from a year earlier', jobs: 'Unemployment rate (%)' };
   let openDial = null;
   function historyChart(dial, recessions) {
     const h = dial.history; if (!h || h.length < 3) return '';
@@ -94,16 +94,24 @@
     const g = doc.data;
     $('gist-summary').textContent = g.summary;
     $('src-gist').innerHTML = `as of ${esc(fmtDate(doc.as_of))}`;
+    const ARROW = { up: '▲', down: '▼', flat: '■' };
+    const moved = (d) => { const t = d.trend; if (!t) return ''; return `<span class="dial-move">${ARROW[t.dir]} ${t.prev ? (t.dir === 'flat' ? 'unchanged' : 'from ' + esc(t.prev)) : (t.dir === 'up' ? 'rising' : t.dir === 'down' ? 'falling' : 'flat')}</span>`; };
     $('dials').innerHTML = g.dials.map((d) => `<button type="button" class="dial ${esc(d.status)}${openDial === d.key ? ' open' : ''}" data-dial="${esc(d.key)}" aria-expanded="${openDial === d.key}" aria-controls="dial-detail">
-        <span class="dial-name">${esc(d.name)}</span><span class="dial-value">${esc(d.value)}</span>
-        <span class="dial-status"><i></i>${STATUS_WORD[d.status]}</span></button>`).join('');
+        <span class="dial-name">${esc(d.name)}</span>
+        <span class="dial-value">${esc(d.value)}</span>${d.sub ? `<span class="dial-sub">${esc(d.sub)}</span>` : ''}
+        ${moved(d)}
+        <span class="dial-foot"><span class="dial-status"><i></i>${STATUS_WORD[d.status]}</span><span class="dial-more">${openDial === d.key ? 'Close ×' : 'Explain ›'}</span></span></button>`).join('');
     const det = $('dial-detail'); const d = g.dials.find((x) => x.key === openDial);
     if (!d) { det.hidden = true; det.textContent = ''; }
     else {
       det.hidden = false;
+      const t = d.trend;
+      const recent = t && t.recent && t.recent.length ? `<div class="recent num">${t.recent.map((r) => `<span><small>${esc(r[0])}</small>${esc(r[1])}</span>`).join('')}</div>` : '';
       det.innerHTML = `<h3>${esc(d.name)} <span class="dial-status ${esc(d.status)}"><i></i>${STATUS_WORD[d.status]}</span></h3>
         <p class="lead">${esc(d.headline)}</p>
-        <div class="parts">${d.parts.map((p) => `<div class="part"><span class="part-label">${esc(p.label)}</span><span class="part-value num">${esc(p.value)}</span>${p.note ? `<span class="part-note">${esc(p.note)}</span>` : ''}</div>`).join('')}</div>
+        ${d.help ? `<div class="explain"><p><strong>What this is.</strong> ${esc(d.help.what)}</p><p><strong>Why it matters.</strong> ${esc(d.help.why)}</p></div>` : ''}
+        ${t ? `<div class="trendbox"><div class="eyebrow">Direction${d.trend_of ? ' · ' + esc(d.trend_of) : ''}</div><p>${esc(t.text)}</p>${recent}</div>` : ''}
+        <div class="parts">${d.parts.map((p, i) => `<div class="part"><span class="part-label">${esc(p.label)}${p.help ? ` <button type="button" class="q" data-q="q-${esc(d.key)}-${i}" aria-expanded="false" aria-label="What is ${esc(p.label)}?">?</button>` : ''}</span><span class="part-value num">${esc(p.value)}</span>${p.note ? `<span class="part-note">${esc(p.note)}</span>` : ''}${p.help ? `<span class="helpbox" id="q-${esc(d.key)}-${i}" hidden>${esc(p.help)}</span>` : ''}</div>`).join('')}</div>
         ${historyChart(d, g.recessions)}
         <p class="rule"><strong>How this is judged.</strong> ${esc(d.rule)}</p>
         <p class="src">Data through ${esc(fmtDate(d.as_of))}. A dial describes where things stand; it is not a forecast or advice.</p>`;
@@ -113,6 +121,12 @@
     if (miss.length) $('gist-missing').textContent = 'Not available on this refresh: ' + miss.join(', ') + '.';
   }
   $('dials').addEventListener('click', (e) => { const b = e.target.closest('[data-dial]'); if (!b) return; openDial = openDial === b.dataset.dial ? null : b.dataset.dial; renderGist(); if (openDial) $('dial-detail').scrollIntoView({ block: 'nearest', behavior: 'smooth' }); });
+
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest('button.q'); if (!b) return;
+    const box = document.getElementById(b.dataset.q); if (!box) return;
+    box.hidden = !box.hidden; b.setAttribute('aria-expanded', String(!box.hidden));
+  });
 
   // ---------- signals ----------
   const sign = (v, d = 1) => (v > 0 ? '+' : '') + v.toFixed(d) + '%';
@@ -148,9 +162,9 @@
     if (!doc || !doc.data.length) { box.hidden = true; return; }
     box.hidden = false;
     $('src-glance').innerHTML = srcLabel(doc);
-    $('glance').innerHTML = `<thead><tr><th>Market</th><th>Day</th><th>1m</th><th>YTD</th><th>Trend</th></tr></thead><tbody>${doc.data.map((g) => {
+    $('glance').innerHTML = `<thead><tr><th>Market</th><th>Fund price</th><th>Day</th><th class="wide">1m</th><th>YTD</th><th>Trend</th></tr></thead><tbody>${doc.data.map((g) => {
       const trend = g.vs_ma200 == null ? '<span class="muted">n/a</span>' : (g.vs_ma200 >= 0 ? '<span class="up" aria-label="uptrend">▲</span>' : '<span class="down" aria-label="downtrend">▼</span>');
-      return `<tr><td><strong>${esc(g.label)}</strong><small>${esc(g.note ? g.note + ' · ' : '')}${esc(g.ticker)}</small></td><td>${pctSpan(g.change_pct)}</td><td>${pctSpan(g.chg_1m)}</td><td>${pctSpan(g.chg_ytd)}</td><td style="font-family:var(--body)" title="Above or below its 200-day average">${trend}</td></tr>`;
+      return `<tr><td><strong>${esc(g.label)}</strong><small>${esc(g.note ? g.note + ' · ' : '')}${esc(g.ticker)}</small></td><td>$${money(g.close)}</td><td>${pctSpan(g.change_pct)}</td><td class="wide">${pctSpan(g.chg_1m)}</td><td>${pctSpan(g.chg_ytd)}</td><td style="font-family:var(--body)" title="Above or below its 200-day average">${trend}</td></tr>`;
     }).join('')}</tbody>`;
   }
 
@@ -272,6 +286,16 @@
   function renderRates() {
     const bills = D.bills, curve = D.curve, auc = D.auctions;
     $('src-rates').innerHTML = srcLabel(bills);
+    const b3 = bills && bills.data.find((r) => r.label === '13-week bill');
+    const t10 = curve && curve.data.find((c) => c.tenor === '10 Yr');
+    const m3 = curve && curve.data.find((c) => c.tenor === '3 Mo');
+    const stats = [];
+    if (b3) stats.push(['3-month T-bill', b3.yield.toFixed(2) + '%', b3.m1 != null ? bp(b3.yield, b3.m1) + ' in a month' : '']);
+    if (t10) stats.push(['10-year Treasury', t10.now.toFixed(2) + '%', t10.m1 != null ? bp(t10.now, t10.m1) + ' in a month' : '']);
+    if (t10 && m3) { const sp = t10.now - m3.now; stats.push(['Yield curve', sp < 0 ? 'Inverted' : 'Normal', `10-year is ${Math.abs(sp).toFixed(2)} pts ${sp < 0 ? 'below' : 'above'} 3-month`]); }
+    const nextAuc = auc && auc.data.find((a) => a.status === 'Upcoming');
+    $('rates-summary').innerHTML = stats.map((x) => `<div class="stat"><span class="stat-label">${x[0]}</span><span class="stat-value num">${x[1]}</span><span class="stat-note">${x[2]}</span></div>`).join('')
+      + (nextAuc ? `<div class="stat"><span class="stat-label">Next bill auction</span><span class="stat-value">${esc(fmtDate(nextAuc.auction_date))}</span><span class="stat-note">${esc(nextAuc.security)}</span></div>` : '');
     staleNote($('stale-rates'), bills, 4);
     if (bills) {
       const extra = curve ? curve.data.filter((c) => c.tenor === '2 Yr' || c.tenor === '10 Yr').map((c) => ({ label: c.tenor.replace(' Yr', '-year note'), yield: c.now, w1: null, m1: c.m1 })) : [];

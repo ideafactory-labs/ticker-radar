@@ -27,9 +27,9 @@ RULES = {
     "credit": "Two measures; the worse one sets the dial. Chicago Fed National Financial Conditions Index (0 = average; "
               "above 0 = tighter than average): amber above 0, red above +0.5. Stock volatility (VIX): amber above 25, "
               "red above 35.",
-    "inflation": "Core CPI (excludes food and energy), change from a year earlier, against the Fed’s 2% goal. "
-                 "Green: 2.5% or less. Amber: up to 3.5%. Red: above 3.5%. Headline CPI is shown alongside but does not "
-                 "set the dial, because food and energy prices swing widely.",
+    "inflation": "Consumer prices compared with a year earlier, against the Fed’s 2% goal. The higher of headline CPI "
+                 "and core CPI (which excludes food and energy) sets the dial. Green: 2.5% or less. Amber: up to 3.5%. "
+                 "Red: above 3.5%.",
     "jobs": "Sahm rule reading: the 3-month average unemployment rate minus its low of the previous 12 months. "
             "Green: under 0.30. Amber: 0.30 to 0.49. Red: 0.50 or more.",
     "market": "S&P 500 fund (SPY) against its 200-day average, and the share of all priced US stocks above their own "
@@ -38,7 +38,138 @@ RULES = {
 }
 
 
+# Plain-English help. "what" says what the thing is; "why" says why anyone watches it.
+HELP = {
+    "valuation": {
+        "what": "Compares the total value of US company shares with the size of the US economy (GDP). It is nicknamed the "
+                "Buffett indicator because Warren Buffett called it probably the best single measure of how expensive stocks are.",
+        "why": "When stocks are worth far more than the economy that produces their profits, future returns have tended to be "
+               "lower. It can stay high for years, so it tells you about risk, not about timing.",
+    },
+    "recession": {
+        "what": "Combines three well-known recession warning signs: the yield curve, the Sahm rule and a statistical "
+                "recession probability.",
+        "why": "Recessions bring job losses and falling profits, and stocks usually fall before and during them. No signal "
+               "is certain; this dial shows how many of the classic warnings are active.",
+    },
+    "credit": {
+        "what": "Measures how easy it is to borrow money and how nervous investors are, using a Federal Reserve index of "
+                "financial conditions and the stock market’s “fear gauge” (the VIX).",
+        "why": "Trouble usually shows up in credit markets first. When borrowing gets hard or markets get fearful, companies "
+               "cut spending and weak ones fail.",
+    },
+    "inflation": {
+        "what": "How much prices have risen compared with a year ago, measured by the Consumer Price Index (CPI). "
+                "“Headline” inflation covers everything people buy. “Core” leaves out food and energy, whose prices jump around.",
+        "why": "The Federal Reserve aims for about 2%. When inflation runs above that, it keeps interest rates higher, "
+               "which weighs on stocks, bonds and borrowing. Headline is what you feel at the shops; core shows the "
+               "underlying trend. The higher of the two sets this dial.",
+    },
+    "jobs": {
+        "what": "The health of the job market: the unemployment rate, how many jobs are being added, and how quickly "
+                "unemployment is rising.",
+        "why": "Consumer spending drives most of the US economy and depends on people having jobs. A fast rise in "
+               "unemployment is one of the most reliable signs that a recession has started.",
+    },
+    "market": {
+        "what": "Whether the stock market is rising or falling over the long run, judged by the S&P 500 against its "
+                "average price over the last 200 trading days, and by how many individual stocks are doing the same.",
+        "why": "Markets in an uptrend tend to keep rising and markets in a downtrend tend to stay weak. When the index "
+               "holds up but most stocks are falling, the rally is narrow and more fragile.",
+    },
+}
+
+PART_HELP = {
+    "Buffett indicator (equities ÷ GDP)": "The market value of US nonfinancial companies’ shares (from the Federal Reserve’s "
+        "accounts) divided by GDP. 100% means stocks are worth one year of the whole economy’s output.",
+    "Higher than this share of history": "Where today’s reading ranks against every quarter since 1970. 90% means it has been "
+        "lower than this nine-tenths of the time.",
+    "Median since 1970": "The middle reading since 1970: half the time it was above this, half below.",
+    "10-year minus 3-month yield": "The interest rate on 10-year US government bonds minus the rate on 3-month bills. Normally "
+        "positive, because lending for longer pays more. When it turns negative the curve is “inverted”: investors expect "
+        "rates to fall, usually because they expect the economy to weaken.",
+    "10-year minus 2-year yield": "Another common version of the yield curve, using 2-year instead of 3-month debt. It often "
+        "inverts earlier.",
+    "Sahm rule": "Named after economist Claudia Sahm. It takes the average unemployment rate of the last three months and "
+        "subtracts its lowest point of the previous twelve. A reading of 0.50 or more has marked the early months of past US "
+        "recessions. It triggered in 2024 without a recession following, so it is a strong warning rather than a certainty.",
+    "Smoothed recession probability": "A statistical estimate (the Chauvet–Piger model, published by the St. Louis Fed) of the "
+        "chance the US is in a recession right now, based on jobs, income, sales and production. It is published about two "
+        "months late.",
+    "Track record of inversions": "How the yield curve has done as a warning in the data we have: how many recessions were "
+        "preceded by an inversion, and how many inversions were not followed by a recession within two years.",
+    "Financial conditions index (NFCI)": "The Chicago Fed’s weekly summary of over 100 measures of borrowing costs, risk and "
+        "leverage. Zero is the long-run average; positive means money is harder to get than usual.",
+    "Stock volatility (VIX)": "The market’s expectation of how much the S&P 500 will swing over the next 30 days, taken from "
+        "option prices. Under 20 is calm; above 30 means investors are frightened.",
+    "High-yield bond spread": "The extra interest that risky companies pay to borrow compared with the US government. It "
+        "widens when investors fear defaults.",
+    "CPI, year over year": "Headline inflation: the change in the price of everything in the consumer basket compared with a "
+        "year ago.",
+    "Core CPI, year over year": "Inflation leaving out food and energy. Economists watch it because it shows the underlying "
+        "trend without the swings in petrol and grocery prices.",
+    "Core CPI a year earlier": "Core inflation twelve months ago, to show whether it has cooled or heated up.",
+    "Market-implied 5-year inflation": "The average inflation rate that bond investors expect over the next five years, read "
+        "from the gap between normal and inflation-protected Treasury yields.",
+    "Unemployment rate": "The share of people who want a job and cannot find one.",
+    "Payroll growth, 3-month average": "The average number of jobs US employers added per month over the last three months. "
+        "Roughly 100k a month keeps up with population growth.",
+    "Jobless claims, 4-week average": "How many people filed for unemployment benefits for the first time each week, averaged "
+        "over four weeks. It is the fastest-moving sign of layoffs.",
+    "S&P 500 vs its 200-day average": "How far the S&P 500 fund is above or below its average price of the last 200 trading "
+        "days, a common dividing line between long-term up and down trends.",
+    "Stocks above their 200-day average": "The share of individual US stocks that are in their own long-term uptrend. This is "
+        "called market breadth: a healthy market has most stocks taking part.",
+    "S&P 500 from its 52-week high": "How far the index is below its highest close of the past year. A fall of 10% is called "
+        "a correction; 20% a bear market.",
+    "S&P 500 this year": "The change in the S&P 500 fund since the last trading day of the previous year.",
+}
+
+
 # ---------------------------------------------------------------- helpers
+def _month(d: str) -> str:
+    return dt.date.fromisoformat(d).strftime("%b %Y")
+
+
+def _quarter(d: str) -> str:
+    return f"Q{(int(d[5:7]) - 1) // 3 + 1} {d[:4]}"
+
+
+def trend(points: Series, fmt, period: str, digits: int, label=_month) -> dict | None:
+    """Direction of the latest move, at the precision the page shows.
+
+    Compares the last two readings after rounding to `digits`, counts how many readings in a
+    row moved the same way, and finds the last time it moved the other way.
+    """
+    if len(points) < 2:
+        return None
+    r = [(d, round(v, digits)) for d, v in points]
+    moves = [(r[i][0], (r[i][1] > r[i - 1][1]) - (r[i][1] < r[i - 1][1])) for i in range(1, len(r))]
+    cur = moves[-1][1]
+    streak = 0
+    for _, m in reversed(moves):
+        if m == cur:
+            streak += 1
+        else:
+            break
+    other = next((d for d, m in reversed(moves) if (m == -cur if cur else m != 0)), None)
+    prev = fmt(r[-2][1])
+    if cur == 0:
+        text = f"Unchanged from the previous {period} ({prev})"
+        text += f" for {streak} {period}s." if streak >= 2 else "."
+        if other:
+            text += f" It last changed in {label(other)}."
+    else:
+        text = f"{'Up' if cur > 0 else 'Down'} from {prev} the previous {period}"
+        if streak >= 2:
+            text += f", {'rising' if cur > 0 else 'falling'} {streak} {period}s in a row"
+        text += "."
+        if other:
+            text += f" It last {'fell' if cur > 0 else 'rose'} in {label(other)}."
+    return {"dir": {1: "up", -1: "down", 0: "flat"}[cur], "prev": prev, "streak": streak, "text": text,
+            "recent": [[label(d), fmt(v)] for d, v in r[-6:]]}
+
+
 def monthly_last(s: Series) -> Series:
     """Last observation of each calendar month."""
     out: dict[str, tuple[str, float]] = {}
@@ -151,8 +282,11 @@ def buffett_series(equities_millions: Series, gdp_billions: Series) -> Series:
 
 # ---------------------------------------------------------------- dials
 def _dial(key, name, status, value, headline, parts, as_of, history=None, extra=None):
+    for part in parts:
+        part["help"] = PART_HELP.get(part["label"], "")
     return {"key": key, "name": name, "status": status, "value": value, "headline": headline,
-            "rule": RULES[key], "parts": parts, "as_of": as_of, "history": history or [], **(extra or {})}
+            "rule": RULES[key], "help": HELP[key], "parts": parts, "as_of": as_of, "history": history or [],
+            "trend": None, **(extra or {})}
 
 
 def valuation_dial(equities_millions: Series, gdp_billions: Series) -> dict:
@@ -169,7 +303,7 @@ def valuation_dial(equities_millions: Series, gdp_billions: Series) -> dict:
                  [{"label": "Buffett indicator (equities ÷ GDP)", "value": f"{v:.0f}%", "note": f"{q}; updates quarterly"},
                   {"label": "Higher than this share of history", "value": f"{pct:.0f}%", "note": "since 1970"},
                   {"label": "Median since 1970", "value": f"{sorted(x for _, x in s)[len(s) // 2]:.0f}%", "note": ""}],
-                 d, downsample(s))
+                 d, downsample(s), {"trend": trend(s, lambda x: f"{x:.0f}%", "quarter", 0, _quarter)})
 
 
 def recession_dial(t10y3m: Series, usrec: Series, sahm: Series, recprob: Series | None, t10y2y: Series | None = None) -> dict:
@@ -204,7 +338,9 @@ def recession_dial(t10y3m: Series, usrec: Series, sahm: Series, recprob: Series 
         parts.append({"label": "Smoothed recession probability", "value": f"{prob[1]:.1f}%", "note": f"{prob[0][:7]}; published with a lag"})
     parts.append({"label": "Track record of inversions", "value": f"{rec['hits']}/{rec['recessions']}", "note": record_txt})
     return _dial("recession", "Recession risk", status, {RED: "High", AMBER: "Raised", GREEN: "Low"}[status],
-                 curve_txt, parts, c["as_of"], downsample(monthly_mean(t10y3m)), {"record": rec, "curve": c})
+                 curve_txt, parts, c["as_of"], downsample(monthly_mean(t10y3m)),
+                 {"record": rec, "curve": c,
+                  "trend": trend(monthly_mean(t10y3m), lambda x: f"{x:+.2f}", "month", 2), "trend_of": "10-year minus 3-month yield, monthly average"})
 
 
 def credit_dial(nfci: Series, vix: Series, hy_spread: Series | None = None) -> dict:
@@ -232,26 +368,31 @@ def credit_dial(nfci: Series, vix: Series, hy_spread: Series | None = None) -> d
              {"label": "Stock volatility (VIX)", "value": f"{vx:.1f}", "note": f"higher than {percentile([x for _, x in vix], vx):.0f}% of history"}]
     if hy_spread:
         parts.append({"label": "High-yield bond spread", "value": f"{hy_spread[-1][1]:.2f} pts", "note": "extra yield over Treasuries"})
-    return _dial("credit", "Credit stress", status, value, head, parts, d, downsample(nfci), {"phrase": phrase} if phrase else None)
+    extra = {"trend": trend(monthly_last(nfci), lambda x: f"{x:+.2f}", "month", 2), "trend_of": "Financial conditions index, month end"}
+    if phrase:
+        extra["phrase"] = phrase
+    return _dial("credit", "Credit stress", status, value, head, parts, d, downsample(nfci), extra)
 
 
 def inflation_dial(cpi: Series, core: Series, breakeven: Series | None = None) -> dict:
     def yoy(s):
         return [(s[i][0], (s[i][1] / s[i - 12][1] - 1) * 100) for i in range(12, len(s))]
     h, c = yoy(cpi), yoy(core)
-    v = c[-1][1]
-    status = GREEN if v <= 2.5 else AMBER if v <= 3.5 else RED
+    head_v, core_v = h[-1][1], c[-1][1]
+    worst = max(round(head_v, 1), round(core_v, 1))
+    status = GREEN if worst <= 2.5 else AMBER if worst <= 3.5 else RED
     word = {GREEN: "near the Fed’s 2% goal", AMBER: "above the Fed’s 2% goal", RED: "well above the Fed’s 2% goal"}[status]
-    month = dt.date.fromisoformat(c[-1][0]).strftime("%B %Y")
-    parts = [{"label": "Core CPI, year over year", "value": f"{v:.1f}%", "note": month},
-             {"label": "CPI, year over year", "value": f"{h[-1][1]:.1f}%", "note": month},
+    month = dt.date.fromisoformat(h[-1][0]).strftime("%B %Y")
+    parts = [{"label": "CPI, year over year", "value": f"{head_v:.1f}%", "note": f"{month}; headline"},
+             {"label": "Core CPI, year over year", "value": f"{core_v:.1f}%", "note": f"{month}; excludes food and energy"},
              {"label": "Core CPI a year earlier", "value": f"{c[-13][1]:.1f}%" if len(c) > 13 else "n/a", "note": ""}]
     if breakeven:
         parts.append({"label": "Market-implied 5-year inflation", "value": f"{breakeven[-1][1]:.2f}%", "note": "from Treasury yields"})
-    gap = h[-1][1] - v
-    also = (f" Headline inflation, which includes food and energy, is {'higher' if gap > 0 else 'lower'} at {h[-1][1]:.1f}%."
-            if abs(gap) >= 0.5 else "")
-    return _dial("inflation", "Inflation", status, f"{v:.1f}%", f"Core inflation is {v:.1f}%, {word}.{also}", parts, c[-1][0], downsample(c))
+    headline = (f"Prices are {head_v:.1f}% higher than a year ago, {word}. "
+                f"Core inflation, which leaves out food and energy, is {core_v:.1f}%.")
+    return _dial("inflation", "Inflation", status, f"{head_v:.1f}%", headline, parts, h[-1][0], downsample(h),
+                 {"trend": trend(h, lambda x: f"{x:.1f}%", "month", 1), "trend_of": "CPI inflation, year over year",
+                  "sub": f"core {core_v:.1f}%"})
 
 
 def jobs_dial(unrate: Series, sahm: Series, payrolls: Series, claims: Series | None = None) -> dict:
@@ -268,7 +409,8 @@ def jobs_dial(unrate: Series, sahm: Series, payrolls: Series, claims: Series | N
     if claims:
         parts.append({"label": "Jobless claims, 4-week average", "value": f"{claims[-1][1] / 1000:,.0f}k", "note": claims[-1][0]})
     return _dial("jobs", "Jobs", status, f"{u:.1f}%", f"The job market is {word}: unemployment {u:.1f}%, Sahm rule {s:.2f}.",
-                 parts, d, downsample(unrate[-360:]))
+                 parts, d, downsample(unrate[-360:]),
+                 {"trend": trend(unrate, lambda x: f"{x:.1f}%", "month", 1), "trend_of": "Unemployment rate"})
 
 
 def market_dial(spy: dict, breadth_pct: float | None, counted: int) -> dict:
@@ -287,9 +429,14 @@ def market_dial(spy: dict, breadth_pct: float | None, counted: int) -> dict:
     if breadth_pct is not None:
         parts.insert(1, {"label": "Stocks above their 200-day average", "value": f"{breadth_pct:.0f}%", "note": f"of {counted:,} US stocks"})
     breadth_txt = f"; {breadth_pct:.0f}% of stocks are in uptrends" if breadth_pct is not None else ""
+    m1, m3 = spy.get("chg_1m"), spy.get("chg_3m")
+    mt = None
+    if m1 is not None:
+        mt = {"dir": "up" if m1 > 0 else "down" if m1 < 0 else "flat", "prev": None, "streak": None, "recent": [],
+              "text": f"The S&P 500 is {m1:+.1f}% over the past month" + (f" and {m3:+.1f}% over three months." if m3 is not None else ".")}
     return _dial("market", "Market trend", status, {GREEN: "Up", AMBER: "Mixed", RED: "Down"}[status],
                  f"The stock market is {word}: the S&P 500 is {abs(above):.1f}% {'above' if up else 'below'} its 200-day average{breadth_txt}.",
-                 parts, spy["as_of"])
+                 parts, spy["as_of"], None, {"trend": mt})
 
 
 def breadth(prices: dict[str, dict], is_stock) -> tuple[float | None, int]:

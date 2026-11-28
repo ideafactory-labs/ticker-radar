@@ -36,6 +36,36 @@ class Helpers(unittest.TestCase):
         self.assertEqual(d[-1][1], 999.0)
 
 
+class Trend(unittest.TestCase):
+    def m(self, vals):
+        return [(f"2026-{i + 1:02d}-01", v) for i, v in enumerate(vals)]
+
+    def pct(self, x):
+        return f"{x:.1f}%"
+
+    def test_up_with_streak_and_last_fall(self):
+        t = macro.trend(self.m([3.0, 2.7, 2.8, 2.9, 3.0]), self.pct, "month", 1)
+        self.assertEqual((t["dir"], t["prev"], t["streak"]), ("up", "2.9%", 3))
+        self.assertEqual(t["text"], "Up from 2.9% the previous month, rising 3 months in a row. It last fell in Feb 2026.")
+        self.assertEqual(t["recent"][-1], ["May 2026", "3.0%"])
+
+    def test_compares_at_displayed_precision(self):
+        # 2.84 and 2.76 both show as 2.8%: that is "unchanged", not a rise.
+        t = macro.trend(self.m([3.0, 2.76, 2.84]), self.pct, "month", 1)
+        self.assertEqual(t["dir"], "flat")
+        self.assertEqual(t["text"], "Unchanged from the previous month (2.8%). It last changed in Feb 2026.")
+
+    def test_down_and_no_history_of_the_other_direction(self):
+        t = macro.trend(self.m([3.2, 3.1]), self.pct, "month", 1)
+        self.assertEqual(t["text"], "Down from 3.2% the previous month.")
+        self.assertIsNone(macro.trend(self.m([3.2]), self.pct, "month", 1))
+
+    def test_every_dial_and_part_has_help(self):
+        self.assertEqual(set(macro.HELP), set(macro.RULES))
+        for h in macro.HELP.values():
+            self.assertTrue(h["what"] and h["why"])
+
+
 class Curve(unittest.TestCase):
     def test_inverted_run(self):
         c = macro.curve_state(daily("2026-01-01", [0.5, 0.2, -0.1, -0.2, -0.3]))
@@ -134,19 +164,30 @@ class Dials(unittest.TestCase):
         self.assertEqual((tight["value"], tight["headline"]), ("Tight", "Financial conditions are tighter than average (index +0.30; VIX 15)."))
         self.assertNotIn("phrase", tight)
         self.assertEqual(macro.summary([j]), "In the US, markets are jittery.")
-        # Headline CPI far from core is said out loud.
-        hot = macro.inflation_dial(months(2020, 60, lambda i: 100 * 1.041 ** (i / 12)), months(2020, 60, lambda i: 100 * 1.029 ** (i / 12)))
-        self.assertEqual(hot["headline"], "Core inflation is 2.9%, above the Fed’s 2% goal. Headline inflation, which includes food and energy, is higher at 4.1%.")
         cpi = months(2020, 60, lambda i: 100 * 1.03 ** (i / 12))
         d = macro.inflation_dial(cpi, cpi)
-        self.assertEqual((d["status"], d["value"]), ("amber", "3.0%"))
-        self.assertEqual(macro.inflation_dial(cpi, months(2020, 60, lambda i: 100 * 1.02 ** (i / 12)))["status"], "green")
-        self.assertEqual(macro.inflation_dial(cpi, months(2020, 60, lambda i: 100 * 1.05 ** (i / 12)))["status"], "red")
+        self.assertEqual((d["status"], d["value"], d["sub"]), ("amber", "3.0%", "core 3.0%"))
+        cool = months(2020, 60, lambda i: 100 * 1.02 ** (i / 12))
+        self.assertEqual(macro.inflation_dial(cool, cool)["status"], "green")
+        # The higher of headline and core sets the dial, whichever it is.
+        self.assertEqual(macro.inflation_dial(cool, months(2020, 60, lambda i: 100 * 1.05 ** (i / 12)))["status"], "red")
+        self.assertEqual(macro.inflation_dial(cpi, cool)["status"], "amber")
+        # The live case: headline 4.1%, core 2.9%. Headline leads and the dial is red.
+        hot = macro.inflation_dial(months(2020, 60, lambda i: 100 * 1.041 ** (i / 12)), months(2020, 60, lambda i: 100 * 1.029 ** (i / 12)))
+        self.assertEqual((hot["status"], hot["value"], hot["sub"]), ("red", "4.1%", "core 2.9%"))
+        self.assertEqual(hot["headline"], "Prices are 4.1% higher than a year ago, well above the Fed’s 2% goal. "
+                                          "Core inflation, which leaves out food and energy, is 2.9%.")
+        self.assertEqual([p["label"] for p in hot["parts"]][:2], ["CPI, year over year", "Core CPI, year over year"])
         un = months(2020, 60, lambda i: 4.0)
         pay = months(2020, 60, lambda i: 150_000 + 100 * i)
         j = macro.jobs_dial(un, [("2026-10-01", 0.35)], pay)
         self.assertEqual(j["status"], "amber")
         self.assertEqual(j["parts"][2]["value"], "+100k")
+        self.assertEqual(j["trend"]["text"], "Unchanged from the previous month (4.0%) for 59 months.")
+        for dial in (d, j, hot):
+            for part in dial["parts"]:
+                self.assertTrue(part["help"], f"no help text for {part['label']!r}")
+            self.assertTrue(dial["help"]["what"])
 
     def test_market_dial_and_breadth(self):
         spy = {"vs_ma200": 5.0, "from_high": -1.0, "chg_ytd": 12.0, "as_of": "2026-11-25"}
