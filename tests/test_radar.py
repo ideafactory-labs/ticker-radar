@@ -185,6 +185,24 @@ class Calendars(unittest.TestCase):
         self.assertEqual(ev[1]["date"], "2026-12-04")
 
 
+class Stamp(unittest.TestCase):
+    def test_versions_both_assets_and_records_the_build(self):
+        from radar import stamp
+        html = (pathlib.Path(__file__).parent.parent / "site" / "index.html").read_text()
+        out = stamp.stamp(html, "abc123-9")
+        self.assertIn('src="app.js?v=abc123-9"', out)
+        self.assertIn('href="style.css?v=abc123-9"', out)
+        self.assertIn('<meta name="build" content="abc123-9">', out)
+        again = stamp.stamp(out, "def456-10")   # re-stamping replaces, never stacks
+        self.assertIn('src="app.js?v=def456-10"', again)
+        self.assertEqual(again.count('<meta name="build"'), 1)
+
+    def test_rejects_unsafe_versions(self):
+        from radar import stamp
+        with self.assertRaises(ValueError):
+            stamp.stamp('<script src="app.js"></script><link href="style.css">', 'x"><script>')
+
+
 class FullBuild(unittest.TestCase):
     def test_build_from_fixtures(self):
         with tempfile.TemporaryDirectory() as d:

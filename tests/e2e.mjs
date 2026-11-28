@@ -154,6 +154,40 @@ await check('sections explain themselves; rates are summarised with the tables b
   await context.close();
 });
 
+if (!LIVE) await check('a stale cached script heals itself: one reload, then everything works, never a loop', async () => {
+  // A deploy stamps index.html and app.js with one build id. Simulate a browser that has the
+  // new page but an older stamped script cached: the first app.js it gets is from build OLD.
+  const html = fs.readFileSync('site/index.html', 'utf8')
+    .replace('<head>\n', '<head>\n<meta name="build" content="NEW">\n').replace('src="app.js"', 'src="app.js?v=NEW"');
+  const js = fs.readFileSync('site/app.js', 'utf8');
+  const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  await context.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
+  let served = 0;
+  await context.route(/\/(\?.*)?$/, (r) => r.fulfill({ body: html, contentType: 'text/html' }));
+  await context.route(/\/app\.js/, (r) => { served++; r.fulfill({ body: js.replace('__BUILD__', served === 1 ? 'OLD' : 'NEW'), contentType: 'text/javascript' }); });
+  const page = await context.newPage();
+  let navs = 0; page.on('framenavigated', (f) => { if (f === page.mainFrame()) navs++; });
+  await page.goto(base + Q);
+  await page.waitForSelector('body[data-ready="1"]');
+  await page.waitForSelector('#dials .dial-more');
+  assert.equal(served, 2, 'script fetched again after the mismatch');
+  assert.equal(navs, 2, 'exactly one automatic reload');
+  await page.locator('button.q[data-q="help-rates"]').click();
+  assert.equal(await page.locator('#help-rates').isVisible(), true, '? works after healing');
+  assert.equal(await page.locator('#rates-summary .stat').count(), 4);
+  // A mismatch that persists (e.g. a broken CDN) reloads once and then stops.
+  served = -100;
+  const p2 = await context.newPage(); let navs2 = 0; p2.on('framenavigated', (f) => { if (f === p2.mainFrame()) navs2++; });
+  await context.unroute(/\/app\.js/);
+  await context.route(/\/app\.js/, (r) => r.fulfill({ body: js.replace('__BUILD__', 'OLD'), contentType: 'text/javascript' }));
+  await p2.evaluate(() => sessionStorage.clear()).catch(() => {});
+  await p2.goto(base + Q);
+  await p2.waitForTimeout(1500);
+  assert.ok(navs2 <= 2, `navigated ${navs2} times`);
+  assert.match(await p2.locator('#gist-summary').textContent(), /^In the US/, 'still renders after giving up')
+  await context.close();
+});
+
 await check('a ticker without price data says so instead of showing a number', async () => {
   const { context, page } = await open();
   await page.fill('#q', 'microsoft');
