@@ -4,6 +4,19 @@
 (function () {
   'use strict';
   const $ = (id) => document.getElementById(id);
+  // Published pages stamp this script and index.html with the same build id. If a browser
+  // cache pairs a new page with an old script (or the reverse), reload once to fetch both.
+  (function checkBuild() {
+    const BUILD = '__BUILD__';
+    const meta = document.querySelector('meta[name="build"]');
+    const page = meta && meta.content;
+    if (!page || BUILD.startsWith('__') || page === BUILD) return;
+    try {
+      if (sessionStorage.getItem('tr-reloaded') === page) return; // never loop
+      sessionStorage.setItem('tr-reloaded', page);
+    } catch (e) { return; }
+    location.reload();
+  })();
   const DAY = 86400000;
   // ?today=YYYY-MM-DD pins the date (tests only); everyone else gets the real date.
   const pinned = /^\d{4}-\d{2}-\d{2}$/.test(new URLSearchParams(location.search).get('today') || '') ? new URLSearchParams(location.search).get('today') : null;
@@ -432,8 +445,9 @@
       $('asof').textContent = 'No data yet';
       $('banner').hidden = false; $('banner').innerHTML = '<b>No data yet.</b><span>The data refresh has not run. Numbers will appear after the next scheduled refresh.</span>';
     }
-    renderGist(); renderGlance(); renderCards(); renderRates(); renderIpos(); renderInds(); renderCal(); renderCode();
-    await renderAlerts();
+    for (const fn of [renderGist, renderGlance, renderCards, renderRates, renderIpos, renderInds, renderCal, renderCode, renderAlerts]) {
+      try { await fn(); } catch (e) { console.error('ticker-radar: ' + fn.name + ' failed', e); }
+    }
     state.lastVisit = iso(today); save();
     document.body.dataset.ready = '1';
   }
